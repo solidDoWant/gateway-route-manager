@@ -1,6 +1,6 @@
 module github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager
 
-go 1.25.1
+go 1.24.3
 
 require github.com/vishvananda/netlink v1.3.1
 
