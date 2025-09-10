@@ -1,8 +1,9 @@
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -euc
 
+GO := /usr/local/go/bin/go
 PROJECT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-MODULE_NAME := $(shell go list -m)
+MODULE_NAME := $(shell "$(GO)" list -m)
 
 ##@ General
 
@@ -14,15 +15,28 @@ help: ## Display this help.
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	$(GO) fmt ./...
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	$(GO) vet ./...
 
 .PHONY: check-licenses
 check-licenses: ## Check licenses of dependencies.
-	@go run github.com/google/go-licenses@latest report ./...
+	@$(GO) run github.com/google/go-licenses@latest report ./...
+
+.PHONY: test
+test: fmt vet
+	ginkgo run -race -cover -vet="" $$($(GO) list ./... | grep -v /e2e | sed "s~$$($(GO) list -m)/~~")
+
+.PHONY: test-e2e
+test-e2e: fmt vet ## Run the e2e tests. This usually requires root privileges.
+	$(GO) test ./e2e/ -v -ginkgo.v
+	$(MAKE) cleanup-test-e2e
+
+.PHONY: cleanup-test-e2e
+cleanup-test-e2e: ## Tear down the netns used for e2e tests.
+	@ip netns del "manager-testing" | grep -v "No such file or directory" || true
 
 ##@ Build and Release
 
@@ -44,7 +58,7 @@ LOCAL_BINARY_PATH := $(BINARY_DIR)/$(LOCALOS)/$(LOCALARCH)/$(BINARY_NAME)
 
 $(BINARY_DIR)/%/$(BINARY_NAME): $(GO_SOURCE_FILES)
 	@mkdir -p "$(@D)"
-	@CGO_ENABLED=0 GOOS="$(word 1,$(subst /, ,$*))" GOARCH="$(word 2,$(subst /, ,$*))" go build -ldflags="$(GO_LDFLAGS)" -o "$@" ./cmd/
+	@CGO_ENABLED=0 GOOS="$(word 1,$(subst /, ,$*))" GOARCH="$(word 2,$(subst /, ,$*))" $(GO) build -ldflags="$(GO_LDFLAGS)" -o "$@" ./cmd/
 
 LOCAL_BUILDERS += binary
 .PHONY: binary
@@ -62,7 +76,7 @@ $(BUILT_LICENSES) &: go.mod LICENSE
 	@mkdir -p "$(LICENSE_DIR)"
 	@cp LICENSE "$(LICENSE_DIR)"
 	@rm -rf "$(GO_DEPENDENCIES_LICENSE_DIR)"
-	@go run github.com/google/go-licenses@latest save ./... --save_path="$(GO_DEPENDENCIES_LICENSE_DIR)" --ignore "$(MODULE_NAME)"
+	@$(GO) run github.com/google/go-licenses@latest save ./... --save_path="$(GO_DEPENDENCIES_LICENSE_DIR)" --ignore "$(MODULE_NAME)"
 
 ALL_BUILDERS += licenses
 .PHONY: licenses
@@ -125,5 +139,5 @@ release: build-all	## Create a GitHub release including all tarballs for all sup
 
 .PHONY: clean
 clean:	## Clean up all build artifacts.
-	@rm -rf $(BUILD_DIR) $(WORKING_DIR) $(HELM_CHART_DIR)/charts
+	@rm -rf $(BUILD_DIR) $(WORKING_DIR) $(HELM_CHART_DIR)/charts coverprofile.out
 	@docker image rm -f $(CONTAINER_IMAGE_TAG) 2> /dev/null > /dev/null || true
