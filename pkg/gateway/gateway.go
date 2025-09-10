@@ -3,6 +3,8 @@ package gateway
 import (
 	"fmt"
 	"net"
+
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 )
 
 // Gateway represents a single gateway with its health status
@@ -58,40 +60,15 @@ func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string
 		}
 
 		// Increment IP
-		incrementIP(currentIP)
+		if err := iputil.IncrementIP(currentIP); err != nil {
+			return nil, fmt.Errorf("failed to increment IP: %v", err)
+		}
 
 		// Safety check to prevent infinite loop
-		if isIPGreater(currentIP, endIP) {
+		if iputil.IsIPGreater(currentIP, endIP) {
 			break
 		}
 	}
 
 	return gateways, nil
-}
-
-// Helper function to check if ip1 > ip2
-func isIPGreater(ip1, ip2 net.IP) bool {
-	// Ensure both IPs are the same length
-	if len(ip1) != len(ip2) {
-		return false
-	}
-
-	for i := range ip1 {
-		if ip1[i] == ip2[i] {
-			continue
-		}
-
-		return ip1[i] > ip2[i]
-	}
-
-	return false // They are equal
-}
-
-func incrementIP(ip net.IP) {
-	for j := len(ip) - 1; j >= 0; j-- {
-		ip[j]++
-		if ip[j] > 0 {
-			break
-		}
-	}
 }

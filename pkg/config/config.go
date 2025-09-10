@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 )
 
 // Config holds all configuration options for the gateway route manager
@@ -21,7 +23,7 @@ type Config struct {
 }
 
 // ParseFlags parses command line flags and returns a Config struct
-func ParseFlags() Config {
+func ParseFlags(args []string) Config {
 	var config Config
 
 	flag.StringVar(&config.StartIP, "start-ip", "", "Starting IP address for the range")
@@ -34,7 +36,7 @@ func ParseFlags() Config {
 	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Port for Prometheus metrics endpoint")
 
-	flag.Parse()
+	flag.CommandLine.Parse(args)
 
 	return config
 }
@@ -59,7 +61,7 @@ func (c Config) Validate() error {
 	// Validate that end IP is after start IP
 	if startIP.Equal(endIP) {
 		// Allow equal IPs (single IP range)
-	} else if isIPGreater(startIP, endIP) {
+	} else if iputil.IsIPGreater(startIP, endIP) {
 		return fmt.Errorf("start-ip (%s) must be less than or equal to end-ip (%s)", c.StartIP, c.EndIP)
 	}
 
@@ -77,22 +79,4 @@ func (c Config) Validate() error {
 	}
 
 	return nil
-}
-
-// Helper function to check if ip1 > ip2
-func isIPGreater(ip1, ip2 net.IP) bool {
-	// Ensure both IPs are the same length
-	if len(ip1) != len(ip2) {
-		return false
-	}
-
-	for i := range ip1 {
-		if ip1[i] == ip2[i] {
-			continue
-		}
-
-		return ip1[i] > ip2[i]
-	}
-
-	return false // They are equal
 }

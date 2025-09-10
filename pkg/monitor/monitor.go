@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/gateway"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
@@ -23,7 +24,7 @@ type GatewayMonitor struct {
 	gateways     []gateway.Gateway
 	client       *http.Client
 	metrics      *metrics.Metrics
-	routeManager *routes.Manager
+	routeManager routes.Manager
 }
 
 // New creates a new GatewayMonitor instance
@@ -33,13 +34,18 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 		return nil, fmt.Errorf("failed to generate gateways: %v", err)
 	}
 
-	metrics, err := metrics.New()
+	metrics, err := metrics.New(prometheus.DefaultRegisterer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics: %v", err)
 	}
 
 	// Set total gateway count
 	metrics.TotalGatewayCount.Set(float64(len(gateways)))
+
+	routeManager, err := routes.NewNetlinkManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create route manager: %v", err)
+	}
 
 	return &GatewayMonitor{
 		config:   cfg,
@@ -48,7 +54,7 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 			Timeout: cfg.Timeout,
 		},
 		metrics:      metrics,
-		routeManager: routes.New(),
+		routeManager: routeManager,
 	}, nil
 }
 

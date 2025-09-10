@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/monitor"
-	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/server"
 )
 
 func main() {
-	cfg := config.ParseFlags()
+	cfg := config.ParseFlags(os.Args[1:])
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
@@ -31,7 +32,7 @@ func main() {
 	defer cancel()
 
 	// Start metrics server
-	if err := server.StartMetricsServer(ctx, cancel, cfg.MetricsPort); err != nil {
+	if err := metrics.StartMetricsServer(ctx, cancel, cfg.MetricsPort); err != nil {
 		log.Fatalf("Failed to start metrics server: %v", err)
 	}
 

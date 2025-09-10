@@ -1,0 +1,16 @@
+package routes
+
+import (
+	"github.com/vishvananda/netlink"
+)
+
+// netlinkHandle is an interface that abstracts the netlink.Handle methods used in this package.
+// This allows for easier testing and mocking of netlink interactions.
+// These should be a 1:1 mapping of the methods used from netlink.Handle for normal operations.
+type netlinkHandle interface {
+	RouteList(link netlink.Link, family int) ([]netlink.Route, error)
+	RouteReplace(route *netlink.Route) error
+	RouteDel(route *netlink.Route) error
+}
+
+var _ netlinkHandle = (*netlink.Handle)(nil)
