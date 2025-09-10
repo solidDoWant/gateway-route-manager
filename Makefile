@@ -44,7 +44,7 @@ LOCAL_BINARY_PATH := $(BINARY_DIR)/$(LOCALOS)/$(LOCALARCH)/$(BINARY_NAME)
 
 $(BINARY_DIR)/%/$(BINARY_NAME): $(GO_SOURCE_FILES)
 	@mkdir -p "$(@D)"
-	@CGO_ENABLED=0 GOOS="$(word 1,$(subst /, ,$*))" GOARCH="$(word 2,$(subst /, ,$*))" go build -ldflags="$(GO_LDFLAGS)" -o "$@" .
+	@CGO_ENABLED=0 GOOS="$(word 1,$(subst /, ,$*))" GOARCH="$(word 2,$(subst /, ,$*))" go build -ldflags="$(GO_LDFLAGS)" -o "$@" ./cmd/
 
 LOCAL_BUILDERS += binary
 .PHONY: binary
