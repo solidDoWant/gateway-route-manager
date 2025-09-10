@@ -123,7 +123,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 
 // isDefaultRoute returns true if the route is a default route (targeting 0.0.0.0/0)
 func isDefaultRoute(route netlink.Route) bool {
-	if route.Gw == nil {
+	if route.Gw == nil && len(route.MultiPath) == 0 {
 		return false
 	}
 
