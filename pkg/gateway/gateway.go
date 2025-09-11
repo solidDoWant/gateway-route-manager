@@ -61,7 +61,7 @@ func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string
 
 		// Increment IP
 		if err := iputil.IncrementIP(currentIP); err != nil {
-			return nil, fmt.Errorf("failed to increment IP: %v", err)
+			return nil, fmt.Errorf("failed to increment IP: %w", err)
 		}
 
 		// Safety check to prevent infinite loop

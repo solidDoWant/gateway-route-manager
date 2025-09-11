@@ -34,7 +34,7 @@ func NewNetlinkManager() (*NetlinkManager, error) {
 	handle, err := netlink.NewHandle()
 	if err != nil {
 		// This should never happen
-		return nil, fmt.Errorf("failed to create netlink handle: %v", err)
+		return nil, fmt.Errorf("failed to create netlink handle: %w", err)
 	}
 
 	return &NetlinkManager{
@@ -48,7 +48,7 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 	if len(activeGateways) == 0 {
 		// Remove existing default route if no gateways are active
 		if err := m.removeDefaultRoute(); err != nil {
-			return fmt.Errorf("failed to remove default route: %v", err)
+			return fmt.Errorf("failed to remove default route: %w", err)
 		}
 
 		slog.Debug("No active gateways, default route removed")
@@ -67,7 +67,7 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 func (m *NetlinkManager) removeDefaultRoute() error {
 	routes, err := m.handle.RouteList(nil, netlink.FAMILY_V4)
 	if err != nil {
-		return fmt.Errorf("failed to list routes: %v", err)
+		return fmt.Errorf("failed to list routes: %w", err)
 	}
 
 	for _, route := range routes {
@@ -109,7 +109,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 	// Try to replace existing route. This is an upsert operation, so if the route
 	// does not exist, it will be created.
 	if err := m.handle.RouteReplace(route); err != nil {
-		return fmt.Errorf("failed to replace/add ECMP route: %v", err)
+		return fmt.Errorf("failed to replace/add ECMP route: %w", err)
 	}
 
 	gatewayStrings := make([]string, 0, len(gateways))

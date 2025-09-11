@@ -168,7 +168,7 @@ func New(registry prometheus.Registerer) (*Metrics, error) {
 
 	for _, collector := range collectors {
 		if err := registry.Register(collector); err != nil {
-			return nil, fmt.Errorf("failed to register metric: %v", err)
+			return nil, fmt.Errorf("failed to register metric: %w", err)
 		}
 	}
 

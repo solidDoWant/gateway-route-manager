@@ -31,12 +31,12 @@ type GatewayMonitor struct {
 func New(cfg config.Config) (*GatewayMonitor, error) {
 	gateways, err := gateway.GenerateGateways(cfg.StartIP, cfg.EndIP, cfg.Port, cfg.URLPath, cfg.Scheme)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate gateways: %v", err)
+		return nil, fmt.Errorf("failed to generate gateways: %w", err)
 	}
 
 	metrics, err := metrics.New(prometheus.DefaultRegisterer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create metrics: %v", err)
+		return nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
 	// Set total gateway count
@@ -44,7 +44,7 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 
 	routeManager, err := routes.NewNetlinkManager()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create route manager: %v", err)
+		return nil, fmt.Errorf("failed to create route manager: %w", err)
 	}
 
 	return &GatewayMonitor{
@@ -87,7 +87,7 @@ func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 	gm.checkGateways(ctx)
 	if err := gm.updateRoutes(); err != nil {
 		gm.metrics.ErrorsTotal.WithLabelValues("route_error").Inc()
-		return fmt.Errorf("failed to update routes: %v", err)
+		return fmt.Errorf("failed to update routes: %w", err)
 	}
 	gm.metrics.CheckCycleDurationSeconds.Observe(time.Since(start).Seconds())
 	gm.metrics.CheckCyclesTotal.Inc()
