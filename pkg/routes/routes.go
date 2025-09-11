@@ -51,7 +51,7 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 			return fmt.Errorf("failed to remove default route: %v", err)
 		}
 
-		slog.Info("No active gateways, default route removed")
+		slog.Debug("No active gateways, default route removed")
 		return nil
 	}
 
@@ -79,7 +79,7 @@ func (m *NetlinkManager) removeDefaultRoute() error {
 			return fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
 		}
 
-		slog.Info("Removed default route", "gateway", route.Gw)
+		slog.Debug("Removed default route", "gateway", route.Gw)
 	}
 
 	return nil
@@ -116,7 +116,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 	for _, gw := range gateways {
 		gatewayStrings = append(gatewayStrings, gw.String())
 	}
-	slog.Info("Updated ECMP default route", "gateways", gatewayStrings)
+	slog.Debug("Updated ECMP default route", "gateways", gatewayStrings)
 
 	return nil
 }

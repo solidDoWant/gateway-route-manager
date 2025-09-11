@@ -72,7 +72,7 @@ func (gm *GatewayMonitor) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("Gateway monitor stopped")
+			slog.InfoContext(ctx, "Gateway monitor stopped")
 			return nil
 		case <-ticker.C:
 			if err := gm.performCheckCycle(ctx); err != nil {
@@ -95,9 +95,7 @@ func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 }
 
 func (gm *GatewayMonitor) checkGateways(ctx context.Context) {
-	if gm.config.Verbose {
-		slog.Info("Checking gateways", "count", len(gm.gateways))
-	}
+	slog.DebugContext(ctx, "Checking gateways", "count", len(gm.gateways))
 
 	var wg sync.WaitGroup
 
@@ -130,11 +128,7 @@ func (gm *GatewayMonitor) checkGateways(ctx context.Context) {
 	// Update metrics
 	gm.metrics.ActiveGatewayCount.Set(float64(activeCount))
 
-	if gm.config.Verbose {
-		slog.Info("Gateway check complete", 
-			"active_count", activeCount, 
-			"total_count", len(gm.gateways))
-	}
+	slog.DebugContext(ctx, "Gateway check complete", "active_count", activeCount, "total_count", len(gm.gateways))
 }
 
 func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway) bool {
@@ -149,9 +143,7 @@ func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway)
 		gm.metrics.ErrorsTotal.WithLabelValues("network_error").Inc()
 		gm.metrics.HealthCheckTotal.WithLabelValues(gatewayIP, "failure").Inc()
 		gm.metrics.HealthCheckDurationSeconds.WithLabelValues(gatewayIP).Observe(time.Since(start).Seconds())
-		if gm.config.Verbose {
-			slog.Error("Failed to create request", "gateway", gw.IP, "error", err)
-		}
+		slog.DebugContext(ctx, "Failed to create request", "gateway", gw.IP, "error", err)
 		return false
 	}
 
@@ -168,9 +160,7 @@ func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway)
 		gm.metrics.HealthCheckDurationSeconds.WithLabelValues(gatewayIP).Observe(duration)
 		gm.metrics.HTTPRequestDurationSeconds.WithLabelValues(gatewayIP).Observe(duration)
 
-		if gm.config.Verbose {
-			slog.Error("Health check failed", "gateway", gw.IP, "error", err)
-		}
+		slog.DebugContext(ctx, "Health check failed", "gateway", gw.IP, "error", err)
 		return false
 	}
 	defer resp.Body.Close()
@@ -183,17 +173,13 @@ func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway)
 	// Check for any 2xx status code (200-299) as successful
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		gm.metrics.HealthCheckTotal.WithLabelValues(gatewayIP, "success").Inc()
-		if gm.config.Verbose {
-			slog.Info("Gateway is healthy", "gateway", gw.IP, "status", resp.StatusCode)
-		}
+		slog.DebugContext(ctx, "Gateway is healthy", "gateway", gw.IP, "status", resp.StatusCode)
 		return true
 	}
 
 	gm.metrics.HealthCheckTotal.WithLabelValues(gatewayIP, "failure").Inc()
 	gm.metrics.ErrorsTotal.WithLabelValues("invalid_response").Inc()
-	if gm.config.Verbose {
-		slog.Warn("Gateway returned unhealthy status", "gateway", gw.IP, "status", resp.StatusCode)
-	}
+	slog.DebugContext(ctx, "Gateway returned unhealthy status", "gateway", gw.IP, "status", resp.StatusCode)
 	return false
 }
 

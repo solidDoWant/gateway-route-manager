@@ -195,9 +195,9 @@ func StartMetricsServer(ctx context.Context, cancel context.CancelFunc, port int
 		return fmt.Errorf("failed to bind to %s: %v", metricsAddr, err)
 	}
 	go func() {
-		slog.Info("Starting metrics server", "address", metricsAddr)
+		slog.InfoContext(ctx, "Starting metrics server", "address", metricsAddr)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			slog.Error("Metrics server failed", "error", err)
+			slog.ErrorContext(ctx, "Metrics server failed", "error", err)
 		}
 		cancel() // Cancel main context when the metrics server is stopped
 	}()
@@ -205,13 +205,13 @@ func StartMetricsServer(ctx context.Context, cancel context.CancelFunc, port int
 	// Start server shutdown goroutine
 	go func() {
 		<-ctx.Done()
-		slog.Info("Shutting down metrics server...")
+		slog.InfoContext(ctx, "Shutting down metrics server...")
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			slog.Error("Metrics server shutdown error", "error", err)
+			slog.ErrorContext(ctx, "Metrics server shutdown error", "error", err)
 		}
 	}()
 
