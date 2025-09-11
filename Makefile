@@ -168,7 +168,7 @@ release: build-all	## Create a GitHub release including all tarballs for all sup
 	@$(SAFETY_PREFIX) gh release create $(TAG) --generate-notes --latest --verify-tag "$(RELEASE_DIR)"/*
 
 .PHONY: clean
+clean:	INCLUDE_LATEST = true
 clean:	## Clean up all build artifacts.
 	@rm -rf $(BUILD_DIR) $(WORKING_DIR) $(HELM_CHART_DIR)/charts coverprofile.out
-	@docker image rm -f $(CONTAINER_IMAGE_TAG) 2> /dev/null > /dev/null || true
-	@docker image rm -f $(CONTAINER_IMAGE_extended_TAG) 2> /dev/null > /dev/null || true
+	@docker image rm -f $(CONTAINER_IMAGE_TAGS) $(CONTAINER_IMAGE_extended_TAGS) 2> /dev/null > /dev/null || true
