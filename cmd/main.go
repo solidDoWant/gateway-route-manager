@@ -37,7 +37,10 @@ func run() (err error) {
 
 	defer func() {
 		closeErr := gatewayMonitor.Close()
-		err = errors.Join(err, fmt.Errorf("failed to close gateway monitor: %w", closeErr))
+		if closeErr != nil {
+			closeErr = fmt.Errorf("failed to close gateway monitor: %w", closeErr)
+		}
+		err = errors.Join(err, closeErr)
 	}()
 
 	slog.Info("Starting gateway monitor", "check_period", cfg.CheckPeriod, "timeout", cfg.Timeout)
