@@ -237,6 +237,17 @@ func threadUnsafeSetupTestNetworkNamespace() {
 		}
 	}
 
+	// Add a dummy default route
+	_, defaultDest, err := net.ParseCIDR("0.0.0.0/0")
+	Expect(err).NotTo(HaveOccurred(), "Failed to parse default route CIDR")
+
+	route := &netlink.Route{
+		Dst: defaultDest,
+		Gw:  net.ParseIP("127.0.0.128"),
+		Src: net.ParseIP("127.0.0.129"),
+	}
+	Expect(netlink.RouteAdd(route)).To(Succeed(), "Failed to add dummy default route in test network namespace")
+
 	// Deferred cleanup of the veth peers is not needed, because one of the two will be deleted
 	// when the network namespace is deleted. Because veth interfaces are exclusively pairs,
 	// deleting one side of the pair will automatically delete the other side.

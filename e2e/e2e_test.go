@@ -45,16 +45,6 @@ var _ = When("Running the built binary", Ordered, func() {
 		checkRoutes()
 	})
 
-	It("should set the default route when there is no gateawy", func() {
-		By("removing any existing default routes")
-		output, err := Run(exec.Command("ip", "route", "del", "default"))
-		Expect(err).To(Or(BeNil(), MatchError(ContainSubstring("No such process"))), "Failed to delete default route: %s", output)
-
-		By("starting the binary to add a default route")
-		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")()
-		checkRoutes("127.0.0.10")
-	})
-
 	It("should add another nexthop when a gateway becomes healthy", func() {
 		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 
@@ -92,13 +82,16 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 		"-port", "8080",
 		"-start-ip", startIP,
 		"-end-ip", endIP,
+		"-exclude-cidr", "10.0.0.0/8",
+		"-exclude-cidr", "172.16.0.0/12",
+		"-exclude-cidr", "192.168.0.0/16",
 		"-log-level", "debug",
 	)
 }
 
 func checkRoutes(expectedNextHopsIPs ...string) {
 	Eventually(func(g Gomega) {
-		fmt.Fprintf(GinkgoWriter, "Checking for default route with next hops: %v\n", expectedNextHopsIPs)
+		By(fmt.Sprintf("Checking for default route with next hops: %v", expectedNextHopsIPs))
 		defaultRoutes := getDefaultIPv4Routes(g)
 		if len(expectedNextHopsIPs) == 0 {
 			g.Expect(defaultRoutes).To(HaveLen(0), "There should be no default routes")
@@ -115,6 +108,28 @@ func checkRoutes(expectedNextHopsIPs ...string) {
 
 			g.Expect(defaultRoute[i].Equal(expectedHop)).To(BeTrue(), "Next hop %d should be %s", i, expectedHop.String())
 		}
+
+		if len(expectedNextHopsIPs) == 0 {
+			return
+		}
+
+		By("Checking that excluded destination CIDRs get forwarded via the main routing table")
+		testAddresses := []string{
+			"10.1.2.3",
+			"172.16.4.5",
+			"192.168.6.7",
+		}
+		for _, addr := range testAddresses {
+			output, err := Run(exec.Command("ip", "route", "get", addr))
+			g.Expect(err).NotTo(HaveOccurred(), "Failed to get route for excluded CIDR address %s: %s", addr, output)
+			g.Expect(output).To(ContainSubstring("src 127.0.0.129"), "Excluded CIDR address %s should be routed via main table", addr)
+		}
+
+		By("Checking that non-excluded destination CIDRs get forwarded via the gateway table")
+		testAddress := "1.2.3.4"
+		output, err := Run(exec.Command("ip", "route", "get", testAddress))
+		g.Expect(err).NotTo(HaveOccurred(), "Failed to get route for non-excluded CIDR address %s: %s", testAddress, output)
+		g.Expect(output).To(ContainSubstring("table 180"), "Non-excluded CIDR address %s should be routed via gateway table", testAddress)
 	}, 2*time.Second, 250*time.Millisecond).Should(Succeed(), "Failed to verify default route")
 }
 
