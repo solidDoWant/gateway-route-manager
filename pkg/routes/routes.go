@@ -47,11 +47,18 @@ var _ Manager = (*NetlinkManager)(nil)
 
 // NewNetlinkManager creates a new netlink route manager
 func NewNetlinkManager(netsToExclude []*net.IPNet, firstTableID, firstRulePreference int) (*NetlinkManager, error) {
-	handle, err := netlink.NewHandle()
-	if err != nil {
-		// This should never happen
-		return nil, fmt.Errorf("failed to create netlink handle: %w", err)
-	}
+	// handle, err := netlink.NewHandle()
+	// if err != nil {
+	// 	// This should never happen
+	// 	return nil, fmt.Errorf("failed to create netlink handle: %w", err)
+	// }
+
+	// For some inexplicable reason, using netlink.NewHandle() causes the program to hang indefinitely when
+	// trying to delete specific routes. This seems to only happen on default routes attached to a table.
+	// Using an empty handle seems to work fine, and is what the netlink package uses internally when no
+	// specific handle is provided.
+	// TODO file a bug report with the netlink package about this issue
+	handle := &netlink.Handle{}
 
 	manager := &NetlinkManager{
 		handle: handle,
