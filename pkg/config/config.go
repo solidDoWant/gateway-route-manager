@@ -3,8 +3,12 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
+	"strings"
 	"time"
+
+	"slices"
 
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 )
@@ -18,7 +22,7 @@ type Config struct {
 	Port        int
 	URLPath     string
 	Scheme      string
-	Verbose     bool
+	LogLevel    string
 	MetricsPort int
 }
 
@@ -33,7 +37,7 @@ func ParseFlags(args []string) Config {
 	flag.IntVar(&config.Port, "port", 80, "Port to target for health checks")
 	flag.StringVar(&config.URLPath, "path", "/", "URL path for health checks")
 	flag.StringVar(&config.Scheme, "scheme", "http", "Scheme to use (http or https)")
-	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
+	flag.StringVar(&config.LogLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Port for Prometheus metrics endpoint")
 
 	flag.CommandLine.Parse(args)
@@ -78,5 +82,29 @@ func (c Config) Validate() error {
 		return fmt.Errorf("metrics port must be between 1 and 65535")
 	}
 
+	// Validate log level
+	normalizedLevel := strings.ToLower(c.LogLevel)
+	validLevels := []string{"debug", "info", "warn", "error"}
+	isValid := slices.Contains(validLevels, normalizedLevel)
+	if !isValid {
+		return fmt.Errorf("log level must be one of: %s", strings.Join(validLevels, ", "))
+	}
+
 	return nil
+}
+
+// GetSlogLevel converts the LogLevel string to a slog.Level
+func (c Config) GetSlogLevel() slog.Level {
+	switch strings.ToLower(c.LogLevel) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo // Default fallback
+	}
 }

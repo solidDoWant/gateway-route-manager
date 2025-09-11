@@ -28,6 +28,8 @@ func run() error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	slog.SetLogLoggerLevel(cfg.GetSlogLevel())
+
 	gatewayMonitor, err := monitor.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create gateway monitor: %w", err)

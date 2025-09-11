@@ -80,7 +80,7 @@ func runBinaryUpdateRoutes(startIP, endIP string) {
 		"-port", "8080",
 		"-start-ip", startIP,
 		"-end-ip", endIP,
-		"-verbose",
+		"-log-level", "debug",
 	)
 }
 

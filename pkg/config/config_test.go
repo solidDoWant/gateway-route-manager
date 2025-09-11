@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        80,
 				URLPath:     "/",
 				Scheme:      "http",
+				LogLevel:    "info",
 				MetricsPort: 9090,
 			},
 		},
@@ -37,6 +39,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        80,
 				URLPath:     "/health",
 				Scheme:      "https",
+				LogLevel:    "debug",
 				MetricsPort: 8080,
 			},
 		},
@@ -50,6 +53,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        443,
 				URLPath:     "/api/health",
 				Scheme:      "https",
+				LogLevel:    "warn",
 				MetricsPort: 3000,
 			},
 		},
@@ -228,6 +232,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        80,
 				URLPath:     "/",
 				Scheme:      "http",
+				LogLevel:    "info",
 				MetricsPort: 1,
 			},
 		},
@@ -241,6 +246,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        80,
 				URLPath:     "/",
 				Scheme:      "http",
+				LogLevel:    "error",
 				MetricsPort: 65535,
 			},
 		},
@@ -254,6 +260,58 @@ func TestConfig_Validate(t *testing.T) {
 
 			err := tt.config.Validate()
 			tt.errFunc(t, err)
+		})
+	}
+}
+
+func TestConfig_GetSlogLevel(t *testing.T) {
+	tests := []struct {
+		name     string
+		logLevel string
+		expected slog.Level
+	}{
+		{
+			name:     "debug level",
+			logLevel: "debug",
+			expected: slog.LevelDebug,
+		},
+		{
+			name:     "info level",
+			logLevel: "info",
+			expected: slog.LevelInfo,
+		},
+		{
+			name:     "warn level",
+			logLevel: "warn",
+			expected: slog.LevelWarn,
+		},
+		{
+			name:     "error level",
+			logLevel: "error",
+			expected: slog.LevelError,
+		},
+		{
+			name:     "case insensitive DEBUG",
+			logLevel: "DEBUG",
+			expected: slog.LevelDebug,
+		},
+		{
+			name:     "case insensitive Info",
+			logLevel: "Info",
+			expected: slog.LevelInfo,
+		},
+		{
+			name:     "invalid level defaults to info",
+			logLevel: "invalid",
+			expected: slog.LevelInfo,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{LogLevel: tt.logLevel}
+			actual := config.GetSlogLevel()
+			require.Equal(t, tt.expected, actual)
 		})
 	}
 }

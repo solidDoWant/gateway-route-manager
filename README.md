@@ -26,7 +26,7 @@ gateway-route-manager \
   -port 9999 \
   -check-period 10s \
   -timeout 5s \
-  -verbose
+  -log-level debug
 ```
 
 ### Docker Usage
@@ -54,17 +54,17 @@ docker run --rm --name gateway-route-manager \
 
 ### Command Line Flags
 
-| Flag            | Default      | Description                               |
-| --------------- | ------------ | ----------------------------------------- |
-| `-start-ip`     | *(required)* | Starting IP address for the gateway range |
-| `-end-ip`       | *(required)* | Ending IP address for the gateway range   |
-| `-port`         | `80`         | Port to target for health checks          |
-| `-path`         | `/`          | URL path for health checks                |
-| `-scheme`       | `http`       | Scheme to use (`http` or `https`)         |
-| `-timeout`      | `1s`         | Timeout for individual health checks      |
-| `-check-period` | `3s`         | How often to perform health checks        |
-| `-metrics-port` | `9090`       | Port for Prometheus metrics endpoint      |
-| `-verbose`      | `false`      | Enable verbose logging                    |
+| Flag            | Default      | Description                                  |
+| --------------- | ------------ | -------------------------------------------- |
+| `-start-ip`     | *(required)* | Starting IP address for the gateway range    |
+| `-end-ip`       | *(required)* | Ending IP address for the gateway range      |
+| `-port`         | `80`         | Port to target for health checks             |
+| `-path`         | `/`          | URL path for health checks                   |
+| `-scheme`       | `http`       | Scheme to use (`http` or `https`)            |
+| `-timeout`      | `1s`         | Timeout for individual health checks         |
+| `-check-period` | `3s`         | How often to perform health checks           |
+| `-metrics-port` | `9090`       | Port for Prometheus metrics endpoint         |
+| `-log-level`    | `info`       | Log level (`debug`, `info`, `warn`, `error`) |
 
 ### Example Configurations
 
@@ -168,10 +168,10 @@ Solution: Increase timeout with `-timeout` flag or check network connectivity.
 
 ### Debug Mode
 
-Enable verbose logging to see detailed health check results:
+Enable debug logging to see detailed health check results:
 
 ```shell
-gateway-route-manager -start-ip 192.168.1.1 -end-ip 192.168.1.5 -verbose
+gateway-route-manager -start-ip 192.168.1.1 -end-ip 192.168.1.5 -log-level debug
 ```
 
 ### Verify Routes
