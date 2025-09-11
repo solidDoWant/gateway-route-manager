@@ -85,6 +85,7 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 		"-exclude-cidr", "10.0.0.0/8",
 		"-exclude-cidr", "172.16.0.0/12",
 		"-exclude-cidr", "192.168.0.0/16",
+		"-exclude-reserved",
 		"-log-level", "debug",
 	)
 }

@@ -1,10 +1,13 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -314,4 +317,37 @@ func TestConfig_GetSlogLevel(t *testing.T) {
 			require.Equal(t, tt.expected, actual)
 		})
 	}
+}
+
+func TestExcludeReservedCIDRs(t *testing.T) {
+	// Test that all reserved CIDRs are valid and parseable
+	for _, cidrStr := range reservedCIDRs {
+		t.Run(fmt.Sprintf("parse_%s", cidrStr), func(t *testing.T) {
+			_, cidr, err := net.ParseCIDR(cidrStr)
+			require.NoError(t, err, "Reserved CIDR %s should be valid", cidrStr)
+			require.NotNil(t, cidr, "Parsed CIDR should not be nil")
+		})
+	}
+}
+
+func TestReservedCIDRsContent(t *testing.T) {
+	// Test that the reserved CIDRs list contains expected entries
+	expectedCIDRs := []string{
+		"0.0.0.0/8",       // "This" Network
+		"10.0.0.0/8",      // Private network
+		"100.64.0.0/10",   // Carrier-grade NAT
+		"127.0.0.0/8",     // Loopback
+		"169.254.0.0/16",  // Link-local
+		"172.16.0.0/12",   // Private network
+		"192.0.0.0/24",    // IETF Protocol Assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"192.88.99.0/24",  // 6to4 Relay Anycast
+		"192.168.0.0/16",  // Private network
+		"198.18.0.0/15",   // Network benchmark tests
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"224.0.0.0/3",     // Multicast + MCAST-TEST-NET + Reserved for future use + Broadcast
+	}
+
+	assert.Equal(t, expectedCIDRs, reservedCIDRs, "Reserved CIDRs list should match expected values")
 }
