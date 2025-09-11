@@ -134,6 +134,12 @@ func (m *NetlinkManager) excludeNetworks(netsToExclude []*net.IPNet, firstTableI
 }
 
 func (m *NetlinkManager) addRules() error {
+	// Delete any existing rules. Netlink rules do no support replacements, only additions and deletions.
+	// This is important to handle in case the program is restarted.
+	if err := m.removeRules(); err != nil {
+		return fmt.Errorf("failed to remove existing rules: %w", err)
+	}
+
 	// First add the fallthrough table rule
 	fallthroughRule := netlink.NewRule()
 	fallthroughRule.Table = m.fallthroughTableID
