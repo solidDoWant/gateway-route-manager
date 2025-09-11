@@ -260,10 +260,6 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 func (m *NetlinkManager) removeDefaultRoute() error {
 	var cleanupErr error
 	err := m.handle.RouteListFilteredIter(netlink.FAMILY_V4, &netlink.Route{Table: m.gatewayTableID}, netlink.RT_FILTER_TABLE, func(route netlink.Route) bool {
-		if route.Table != m.gatewayTableID {
-			slog.Debug("Skipping route not in gateway table", "table", route.Table, "gateway_table", m.gatewayTableID, "route", route.String())
-			return true
-		}
 
 		if err := m.handle.RouteDel(&route); err != nil {
 			cleanupErr = fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
