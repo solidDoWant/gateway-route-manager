@@ -3,6 +3,9 @@ package routes
 import (
 	"errors"
 	"net"
+	"os/exec"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,10 +34,35 @@ func (m *mockNetlinkHandle) RouteDel(route *netlink.Route) error {
 	return args.Error(0)
 }
 
+func (m *mockNetlinkHandle) RuleList(family int) ([]netlink.Rule, error) {
+	args := m.Called(family)
+	return args.Get(0).([]netlink.Rule), args.Error(1)
+}
+
+func (m *mockNetlinkHandle) RuleAdd(rule *netlink.Rule) error {
+	args := m.Called(rule)
+	return args.Error(0)
+}
+
+func (m *mockNetlinkHandle) RuleDel(rule *netlink.Rule) error {
+	args := m.Called(rule)
+	return args.Error(0)
+}
+
+func (m *mockNetlinkHandle) Close() {
+	m.Called()
+}
+
 // createTestNetlinkManager creates a NetlinkManager with a mocked handle for testing
 func createTestNetlinkManager(mockHandle *mockNetlinkHandle) *NetlinkManager {
 	return &NetlinkManager{
-		handle: mockHandle,
+		handle:                         mockHandle,
+		gatewayTableID:                 100,
+		fallthroughTableID:             101,
+		firstExcludeRulePreference:     1000,
+		fallthroughTableRulePreference: 1002,
+		gatewayTableRulePreference:     1001,
+		excludeNets:                    []*net.IPNet{},
 	}
 }
 
@@ -42,14 +70,15 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return existing default routes
+	// Mock RouteList to return existing routes in the gateway table
 	existingRoutes := []netlink.Route{
 		{
 			Dst: &net.IPNet{
 				IP:   net.IPv4zero,
 				Mask: net.CIDRMask(0, 32),
 			},
-			Gw: net.ParseIP("192.168.1.1"),
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 100, // gateway table
 		},
 	}
 	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(existingRoutes, nil)
@@ -86,7 +115,8 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways_RouteDelError(t *testing.T
 				IP:   net.IPv4zero,
 				Mask: net.CIDRMask(0, 32),
 			},
-			Gw: net.ParseIP("192.168.1.1"),
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 100, // gateway table
 		},
 	}
 	expectedError := errors.New("failed to delete route")
@@ -110,7 +140,7 @@ func TestNetlinkManager_UpdateDefaultRoute_SingleGateway(t *testing.T) {
 
 	// Mock RouteReplace to succeed
 	mockHandle.On("RouteReplace", mock.MatchedBy(func(route *netlink.Route) bool {
-		// Verify the route is a default route with the correct gateway
+		// Verify the route is a default route with the correct gateway and table
 		if route.Dst == nil {
 			return false
 		}
@@ -119,6 +149,9 @@ func TestNetlinkManager_UpdateDefaultRoute_SingleGateway(t *testing.T) {
 		}
 		ones, bits := route.Dst.Mask.Size()
 		if ones != 0 || bits != 32 {
+			return false
+		}
+		if route.Table != 100 { // gateway table
 			return false
 		}
 		if len(route.MultiPath) != 1 {
@@ -154,6 +187,9 @@ func TestNetlinkManager_UpdateDefaultRoute_MultipleGateways(t *testing.T) {
 		}
 		ones, bits := route.Dst.Mask.Size()
 		if ones != 0 || bits != 32 {
+			return false
+		}
+		if route.Table != 100 { // gateway table
 			return false
 		}
 		if len(route.MultiPath) != 3 {
@@ -221,6 +257,9 @@ func TestNetlinkManager_UpdateDefaultRoute_GatewaySorting(t *testing.T) {
 		if len(route.MultiPath) != 3 {
 			return false
 		}
+		if route.Table != 100 { // gateway table
+			return false
+		}
 		// Check that gateways are in sorted order
 		expectedOrder := []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}
 		for i, nexthop := range route.MultiPath {
@@ -276,34 +315,47 @@ func TestNetlinkManager_removeDefaultRoute_WithDefaultRoutes(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return mix of default and non-default routes
+	// Mock RouteList to return mix of routes in different tables
 	routes := []netlink.Route{
 		{
-			// Non-default route
+			// Route in main table (should be ignored)
 			Dst: &net.IPNet{
 				IP:   net.ParseIP("10.0.0.0"),
 				Mask: net.CIDRMask(8, 32),
 			},
-			Gw: net.ParseIP("192.168.1.1"),
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 254, // main table
 		},
 		{
-			// Default route
+			// Route in gateway table (should be deleted)
 			Dst: &net.IPNet{
 				IP:   net.IPv4zero,
 				Mask: net.CIDRMask(0, 32),
 			},
-			Gw: net.ParseIP("192.168.1.1"),
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 100, // gateway table
 		},
 		{
-			// Another default route
-			Dst: nil, // nil Dst also indicates default route
-			Gw:  net.ParseIP("192.168.1.2"),
+			// Another route in gateway table with ECMP (should be deleted)
+			Dst: &net.IPNet{
+				IP:   net.IPv4zero,
+				Mask: net.CIDRMask(0, 32),
+			},
+			MultiPath: []*netlink.NexthopInfo{
+				{
+					Gw: net.ParseIP("192.168.1.2"),
+				},
+				{
+					Gw: net.ParseIP("192.168.1.3"),
+				},
+			},
+			Table: 100, // gateway table
 		},
 	}
 
 	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(routes, nil)
-	mockHandle.On("RouteDel", &routes[1]).Return(nil) // First default route
-	mockHandle.On("RouteDel", &routes[2]).Return(nil) // Second default route
+	mockHandle.On("RouteDel", &routes[1]).Return(nil) // First gateway table route
+	mockHandle.On("RouteDel", &routes[2]).Return(nil) // Second gateway table route
 
 	err := manager.removeDefaultRoute()
 
@@ -311,96 +363,78 @@ func TestNetlinkManager_removeDefaultRoute_WithDefaultRoutes(t *testing.T) {
 	mockHandle.AssertExpectations(t)
 }
 
-func TestIsDefaultRoute(t *testing.T) {
-	tests := []struct {
-		name     string
-		route    netlink.Route
-		expected bool
-	}{
-		{
-			name: "default route with 0.0.0.0/0",
-			route: netlink.Route{
-				Dst: &net.IPNet{
-					IP:   net.IPv4zero,
-					Mask: net.CIDRMask(0, 32),
-				},
-				Gw: net.ParseIP("192.168.1.1"),
-			},
-			expected: true,
-		},
-		{
-			name: "default route with nil destination",
-			route: netlink.Route{
-				Dst: nil,
-				Gw:  net.ParseIP("192.168.1.1"),
-			},
-			expected: true,
-		},
-		{
-			name: "non-default route",
-			route: netlink.Route{
-				Dst: &net.IPNet{
-					IP:   net.ParseIP("10.0.0.0"),
-					Mask: net.CIDRMask(8, 32),
-				},
-				Gw: net.ParseIP("192.168.1.1"),
-			},
-			expected: false,
-		},
-		{
-			name: "route without gateway",
-			route: netlink.Route{
-				Dst: &net.IPNet{
-					IP:   net.IPv4zero,
-					Mask: net.CIDRMask(0, 32),
-				},
-				Gw: nil,
-			},
-			expected: false,
-		},
-		{
-			name: "route with non-zero IP",
-			route: netlink.Route{
-				Dst: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
-				Gw: net.ParseIP("192.168.1.1"),
-			},
-			expected: false,
-		},
-		{
-			name: "route with non-zero mask",
-			route: netlink.Route{
-				Dst: &net.IPNet{
-					IP:   net.IPv4zero,
-					Mask: net.CIDRMask(8, 32),
-				},
-				Gw: net.ParseIP("192.168.1.1"),
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isDefaultRoute(tt.route)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestNewNetlinkManager(t *testing.T) {
+	// Skip this test if we don't have root privileges, as it tries to modify actual network rules
+	if !hasNetworkPrivileges() {
+		t.Skip("Skipping test that requires network privileges")
+	}
+
 	// This test verifies that NewNetlinkManager creates a manager with a real netlink handle
-	// We can't easily mock netlink.NewHandle(), so we just verify the function works
-	manager, err := NewNetlinkManager()
+	_, cidr, err := net.ParseCIDR("10.0.0.0/8")
+	require.NoError(t, err)
+
+	manager, err := NewNetlinkManager([]*net.IPNet{cidr}, 100, 1000)
 
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 	require.NotNil(t, manager.handle)
 
+	// Get the rules via iproute2 to see what was actually added
+	output, err := exec.CommandContext(t.Context(), "ip", "rule", "list").CombinedOutput()
+	require.NoError(t, err, "ip rule list failed: %s", string(output))
+
+	lines := slices.Collect(strings.Lines(string(output)))
+	require.Len(t, lines, 6)
+
+	assert.Equal(t, "0:	from all lookup local\n", lines[0])
+	assert.Equal(t, "1000:	from all to 10.0.0.0/8 goto 1002\n", lines[1])
+	assert.Equal(t, "1001:	from all lookup 100\n", lines[2])
+	assert.Equal(t, "1002:	from all lookup 101\n", lines[3])
+	assert.Equal(t, "32766:	from all lookup main\n", lines[4])
+	assert.Equal(t, "32767:	from all lookup default\n", lines[5])
+
+	// Clean up the manager to remove any rules that were added
+	err = manager.Close()
+	require.NoError(t, err)
+
+	// Get the rules again to verify they were removed
+	output, err = exec.CommandContext(t.Context(), "ip", "rule", "list").CombinedOutput()
+	require.NoError(t, err, "ip rule list failed: %s", string(output))
+
+	lines = slices.Collect(strings.Lines(string(output)))
+	require.Len(t, lines, 3)
+
+	assert.Equal(t, "0:	from all lookup local\n", lines[0])
+	assert.Equal(t, "32766:	from all lookup main\n", lines[1])
+	assert.Equal(t, "32767:	from all lookup default\n", lines[2])
+
 	// Verify that the manager implements the Manager interface
 	var _ Manager = manager
+}
+
+// hasNetworkPrivileges checks if we have the necessary privileges to modify network rules
+func hasNetworkPrivileges() bool {
+	// Try to create a dummy handle to see if we have the necessary privileges
+	handle, err := netlink.NewHandle()
+	if err != nil {
+		return false
+	}
+	defer handle.Close()
+
+	// Try to add a dummy rule to a high table ID to test privileges
+	// We use a high table ID to avoid conflicts with existing rules
+	testRule := netlink.NewRule()
+	testRule.Table = 253      // High table ID unlikely to conflict
+	testRule.Priority = 32765 // Very low priority
+
+	err = handle.RuleAdd(testRule)
+	if err != nil {
+		return false
+	}
+
+	// Clean up the test rule
+	handle.RuleDel(testRule)
+	return true
 }
 
 // TestNetlinkManager_InterfaceCompliance verifies that NetlinkManager implements Manager interface
