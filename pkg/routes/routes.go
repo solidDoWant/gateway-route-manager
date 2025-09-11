@@ -7,6 +7,7 @@ import (
 	"net"
 	"sort"
 
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
 )
@@ -111,6 +112,11 @@ func (m *NetlinkManager) excludeNetworks(netsToExclude []*net.IPNet, firstTableI
 		return fmt.Errorf("invalid first table ID: %d (must be between 1 and %d)", firstTableID, maxTableID)
 	}
 
+	// Reduce netsToExclude to the smallest possible set, removing duplicates,
+	// subsets, and merging adjacent networks
+	netsToExclude = iputil.ReduceNetworks(netsToExclude)
+
+	// Validate that there are enough rule priorities available
 	requiredRuleCount := len(netsToExclude) + 2             // 2 for the table rules, rest for the exclude jumps
 	maxFirstRulePreference := 32766 - requiredRuleCount + 1 // +1 because the firstRuleID is inclusive
 	if firstRulePreference < 1 || firstRulePreference > maxFirstRulePreference {

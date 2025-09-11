@@ -484,6 +484,78 @@ func TestNewNetlinkManager_WithNetworkExclusion(t *testing.T) {
 	defer manager.Close()
 }
 
+func TestNewNetlinkManager_NetworkReduction(t *testing.T) {
+	// Test that the network reduction functionality works correctly
+	// This test doesn't require network privileges as it uses mock handles
+
+	// Create input with duplicates, subsets, and mergeable networks
+	inputNets := []*net.IPNet{
+		// Duplicates
+		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+		// Subsets (these should be removed)
+		{IP: net.ParseIP("10.1.1.0"), Mask: net.CIDRMask(24, 32)},
+		{IP: net.ParseIP("10.2.2.0"), Mask: net.CIDRMask(24, 32)},
+		// Mergeable networks
+		{IP: net.ParseIP("192.168.1.0"), Mask: net.CIDRMask(25, 32)},
+		{IP: net.ParseIP("192.168.1.128"), Mask: net.CIDRMask(25, 32)},
+		// Standalone network
+		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
+	}
+
+	// Create a manager with a mock handle to avoid needing network privileges
+	mockHandle := &mockNetlinkHandle{}
+	manager := &NetlinkManager{
+		handle: mockHandle,
+	}
+
+	// Mock the operations that addRules will call
+	// First it calls removeRules, which calls RuleList
+	mockHandle.On("RuleList", 2).Return([]netlink.Rule{}, nil) // Return empty rule list
+
+	// Then it adds rules for each excluded network plus the two table rules
+	// We expect 3 reduced networks + 2 table rules = 5 RuleAdd calls
+	mockHandle.On("RuleAdd", mock.Anything).Return(nil).Times(5)
+
+	// Call excludeNetworks to test the reduction
+	err := manager.excludeNetworks(inputNets, 100, 1000)
+	require.NoError(t, err)
+
+	// Verify the networks were properly reduced
+	// Expected result: [10.0.0.0/8, 192.168.1.0/24, 172.16.0.0/12]
+	expectedCount := 3
+	require.Len(t, manager.excludeNets, expectedCount)
+
+	// Check that the specific expected networks are present
+	expectedNetworks := map[string]bool{
+		"10.0.0.0/8":     false,
+		"192.168.1.0/24": false,
+		"172.16.0.0/12":  false,
+	}
+
+	for _, network := range manager.excludeNets {
+		networkStr := network.String()
+		if _, exists := expectedNetworks[networkStr]; exists {
+			expectedNetworks[networkStr] = true
+		} else {
+			t.Errorf("Unexpected network in result: %s", networkStr)
+		}
+	}
+
+	// Verify all expected networks were found
+	for networkStr, found := range expectedNetworks {
+		require.True(t, found, "Expected network %s not found in result", networkStr)
+	}
+
+	// Verify the rule preferences were calculated correctly for the reduced set
+	require.Equal(t, 1000, manager.firstExcludeRulePreference)
+	require.Equal(t, 1004, manager.fallthroughTableRulePreference) // 1000 + 3 networks + 1
+	require.Equal(t, 1003, manager.gatewayTableRulePreference)     // fallthrough - 1
+
+	// Verify all mock expectations were met
+	mockHandle.AssertExpectations(t)
+}
+
 func TestNewNetlinkManager_InvalidParameters(t *testing.T) {
 	tests := []struct {
 		name           string
