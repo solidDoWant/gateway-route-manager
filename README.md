@@ -32,7 +32,6 @@ gateway-route-manager \
 ### Docker Usage
 
 ```shell
-
 docker run --rm --name gateway-route-manager \
   --net=host --cap-add=NET_ADMIN \
   gateway-route-manager:<TAG-SET-ME> \
@@ -40,6 +39,15 @@ docker run --rm --name gateway-route-manager \
   -end-ip 192.168.1.20 \
   -port 8080
 ```
+
+#### Available Tags
+
+* `<version>` - Minimal distroless image (~12MB) containing only the binary
+* `<version>-extended` - Alpine-based image with debugging tools additional tools, based on [netshoot](https://github.com/nicolaka/netshoot). This includes:
+  * A full shell
+  * Standard CLI tools
+  * keepalived, conntrack-tools, nmap, ipvsadm
+
 
 ## Configuration
 

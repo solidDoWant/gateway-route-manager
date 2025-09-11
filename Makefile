@@ -100,22 +100,48 @@ ALL_BUILDERS += tarball-all
 tarball-all: $(BINARY_PLATFORMS:%=$(TARBALL_DIR)/%/$(BINARY_NAME).tar.gz)	## Create tarballs with the binary and licenses for all supported platforms.
 
 CONTAINER_IMAGE_TAG = $(CONTAINER_REGISTRY)/$(BINARY_NAME):$(VERSION)
+
+CONTAINER_IMAGE_extended_TAG = $(CONTAINER_IMAGE_TAG)-extended
+CONTAINER_IMAGE_extended_ARGS = BASE_IMAGE=extended
+
 CONTAINER_BUILD_LABEL_VARS = org.opencontainers.image.source=https://github.com/solidDoWant/gateway-route-manager org.opencontainers.image.licenses=AGPL-3.0
 CONTAINER_BUILD_LABELS := $(foreach var,$(CONTAINER_BUILD_LABEL_VARS),--label $(var))
 CONTAINER_PLATFORMS := $(BINARY_PLATFORMS)
 
-LOCAL_BUILDERS += container-image
+.PHONY: container-image-%
+container-image-%: TAG_TO_USE = $(if $(filter standard,$*),$(CONTAINER_IMAGE_TAG),$(CONTAINER_IMAGE_$*_TAG))
+container-image-%: ARGS_TO_USE = $(if $(filter standard,$*),$(CONTAINER_IMAGE_ARGS),$(CONTAINER_IMAGE_$*_ARGS))
+container-image-%: binary licenses	## Build the container image for the local platform.
+	$(CONTAINER_TOOL) buildx build --platform linux/$(LOCALARCH) -t $(TAG_TO_USE) --load $(CONTAINER_BUILD_LABELS) $(ARGS_TO_USE:%=--build-arg %) .
+
+CONTAINER_IMAGE_BUILDERS += container-image-standard
+CONTAINER_IMAGE_BUILDERS += container-image-extended
+LOCAL_BUILDERS += $(CONTAINER_IMAGE_BUILDERS)
+
 .PHONY: container-image
-container-image: binary licenses	## Build the container image for the local platform.
-	$(CONTAINER_TOOL) buildx build --platform linux/$(LOCALARCH) -t $(CONTAINER_IMAGE_TAG) --load $(CONTAINER_BUILD_LABELS) .
+container-image: container-image-standard	## Build the container image for the local platform.
+
+.PHONY: container-images
+container-images: $(CONTAINER_IMAGE_BUILDERS)	## Build all container images for the local platform.
 
 CONTAINER_MANIFEST_PUSH ?= $(PUSH_ALL)
 
-ALL_BUILDERS += container-manifest
+.PHONY: container-manifest-%
+container-manifest-%: PUSH_ARG = $(if $(findstring t,$(CONTAINER_MANIFEST_PUSH)),--push)
+container-manifest-%: TAG_TO_USE = $(if $(filter standard,$*),$(CONTAINER_IMAGE_TAG),$(CONTAINER_IMAGE_$*_TAG))
+container-manifest-%: ARGS_TO_USE = $(if $(filter standard,$*),$(CONTAINER_IMAGE_ARGS),$(CONTAINER_IMAGE_$*_ARGS))
+container-manifest-%: $(CONTAINER_PLATFORMS:%=$(BINARY_DIR)/%/$(BINARY_NAME)) licenses	## Build and optionally push the container image for all supported platforms.
+	@docker buildx build $(CONTAINER_PLATFORMS:%=--platform %) $(PUSH_ARG) -t $(TAG_TO_USE) $(CONTAINER_BUILD_LABELS) $(ARGS_TO_USE:%=--build-arg %) .
+
+CONTAINER_MANIFEST_BUILDERS += container-manifest-standard
+CONTAINER_MANIFEST_BUILDERS += container-manifest-extended
+ALL_BUILDERS += $(CONTAINER_MANIFEST_BUILDERS)
+
 .PHONY: container-manifest
-container-manifest: PUSH_ARG = $(if $(findstring t,$(CONTAINER_MANIFEST_PUSH)),--push)
-container-manifest: $(CONTAINER_PLATFORMS:%=$(BINARY_DIR)/%/$(BINARY_NAME)) licenses	## Build and optionally push the container image for all supported platforms.
-	@docker buildx build $(CONTAINER_PLATFORMS:%=--platform %) $(PUSH_ARG) -t $(CONTAINER_IMAGE_TAG) $(CONTAINER_BUILD_LABELS) .
+container-manifest: container-manifest-standard	## Build and optionally push the standard container image for all supported platforms.
+
+.PHONY: container-manifests
+container-manifests: $(CONTAINER_MANIFEST_BUILDERS)	## Build and optionally push all container images for all supported platforms.
 
 .PHONY: build
 build: manifests generate fmt vet schemas $(LOCAL_BUILDERS) ## Builds all local outputs (binaries, tarballs, licenses, etc.).
@@ -143,3 +169,4 @@ release: build-all	## Create a GitHub release including all tarballs for all sup
 clean:	## Clean up all build artifacts.
 	@rm -rf $(BUILD_DIR) $(WORKING_DIR) $(HELM_CHART_DIR)/charts coverprofile.out
 	@docker image rm -f $(CONTAINER_IMAGE_TAG) 2> /dev/null > /dev/null || true
+	@docker image rm -f $(CONTAINER_IMAGE_extended_TAG) 2> /dev/null > /dev/null || true

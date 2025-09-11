@@ -1,6 +1,15 @@
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
+
+ARG NETSHOOT_IMAGE=nicolaka/netshoot:latest
+
+# Alternative base image with additional tools
+FROM ${NETSHOOT_IMAGE} AS extended
+
+RUN apk add --no-cache conntrack-tools keepalived nmap iptables ipvsadm
+
+FROM ${BASE_IMAGE}
 
 ARG TARGETOS
 ARG TARGETARCH
