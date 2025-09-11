@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,16 +16,19 @@ func main() {
 	cfg := config.ParseFlags(os.Args[1:])
 
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
+		slog.Error("Invalid configuration", "error", err)
+		os.Exit(1)
 	}
 
 	gatewayMonitor, err := monitor.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create gateway monitor: %v", err)
+		slog.Error("Failed to create gateway monitor", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Starting gateway monitor with check period: %v, timeout: %v",
-		cfg.CheckPeriod, cfg.Timeout)
+	slog.Info("Starting gateway monitor", 
+		"check_period", cfg.CheckPeriod, 
+		"timeout", cfg.Timeout)
 
 	// Create context for graceful shutdown with signal handling
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -33,11 +36,13 @@ func main() {
 
 	// Start metrics server
 	if err := metrics.StartMetricsServer(ctx, cancel, cfg.MetricsPort); err != nil {
-		log.Fatalf("Failed to start metrics server: %v", err)
+		slog.Error("Failed to start metrics server", "error", err)
+		os.Exit(1)
 	}
 
 	// Run the monitoring loop
 	if err := gatewayMonitor.Run(ctx); err != nil {
-		log.Fatalf("Gateway monitor exited with error: %v", err)
+		slog.Error("Gateway monitor exited with error", "error", err)
+		os.Exit(1)
 	}
 }

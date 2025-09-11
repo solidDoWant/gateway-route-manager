@@ -2,7 +2,7 @@ package routes
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"sort"
 
@@ -51,7 +51,7 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 			return fmt.Errorf("failed to remove default route: %v", err)
 		}
 
-		log.Println("No active gateways, default route removed")
+		slog.Info("No active gateways, default route removed")
 		return nil
 	}
 
@@ -79,7 +79,7 @@ func (m *NetlinkManager) removeDefaultRoute() error {
 			return fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
 		}
 
-		log.Printf("Removed default route via %s", route.Gw)
+		slog.Info("Removed default route", "gateway", route.Gw)
 	}
 
 	return nil
@@ -116,7 +116,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 	for _, gw := range gateways {
 		gatewayStrings = append(gatewayStrings, gw.String())
 	}
-	log.Printf("Updated ECMP default route via gateways: %v", gatewayStrings)
+	slog.Info("Updated ECMP default route", "gateways", gatewayStrings)
 
 	return nil
 }

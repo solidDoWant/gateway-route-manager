@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -195,9 +195,9 @@ func StartMetricsServer(ctx context.Context, cancel context.CancelFunc, port int
 		return fmt.Errorf("failed to bind to %s: %v", metricsAddr, err)
 	}
 	go func() {
-		log.Printf("Starting metrics server on %s", metricsAddr)
+		slog.Info("Starting metrics server", "address", metricsAddr)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("Metrics server failed: %v", err)
+			slog.Error("Metrics server failed", "error", err)
 		}
 		cancel() // Cancel main context when the metrics server is stopped
 	}()
@@ -205,13 +205,13 @@ func StartMetricsServer(ctx context.Context, cancel context.CancelFunc, port int
 	// Start server shutdown goroutine
 	go func() {
 		<-ctx.Done()
-		log.Println("Shutting down metrics server...")
+		slog.Info("Shutting down metrics server...")
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Metrics server shutdown error: %v", err)
+			slog.Error("Metrics server shutdown error", "error", err)
 		}
 	}()
 
