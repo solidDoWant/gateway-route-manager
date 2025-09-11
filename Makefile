@@ -38,7 +38,7 @@ test-e2e: fmt vet ## Run the e2e tests. This usually requires root privileges.
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the netns used for e2e tests.
-	@ip netns del "manager-testing" | grep -v "No such file or directory" || true
+	@ip netns del "manager-testing" 2>&1 | grep -v "No such file or directory" || true
 
 ##@ Build and Release
 
