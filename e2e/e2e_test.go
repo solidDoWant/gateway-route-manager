@@ -2,7 +2,9 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"regexp"
 	"time"
@@ -11,7 +13,17 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = When("Running the built binary", func() {
+var _ = When("Running the built binary", Ordered, func() {
+	BeforeEach(func() {
+		By("Logging the current routes and rules prior to starting the test")
+		logRoutingState()
+	})
+
+	AfterEach(func() {
+		By("Logging the current routes and rules after finishing the test")
+		logRoutingState()
+	})
+
 	It("should show the help message", func() {
 		helpText, err := Run(exec.Command(binaryPath, "--help"))
 		Expect(err).NotTo(HaveOccurred(), "Failed to run binary")
@@ -19,17 +31,17 @@ var _ = When("Running the built binary", func() {
 	})
 
 	It("should set the default route", func() {
-		runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")
+		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")()
 		checkRoutes("127.0.0.10")
 	})
 
-	It("should set multiple default routes", func() {
-		runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")
+	It("should set multiple default nexthops", func() {
+		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 		checkRoutes("127.0.0.10", "127.0.0.12")
 	})
 
 	It("should remove the default route when no gateways are healthy", func() {
-		runBinaryUpdateRoutes("127.0.0.11", "127.0.0.11")
+		defer runBinaryUpdateRoutes("127.0.0.11", "127.0.0.11")()
 		checkRoutes()
 	})
 
@@ -39,12 +51,12 @@ var _ = When("Running the built binary", func() {
 		Expect(err).To(Or(BeNil(), MatchError(ContainSubstring("No such process"))), "Failed to delete default route: %s", output)
 
 		By("starting the binary to add a default route")
-		runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")
+		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")()
 		checkRoutes("127.0.0.10")
 	})
 
 	It("should add another nexthop when a gateway becomes healthy", func() {
-		runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")
+		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 
 		// Check that the default route has been set to the two health gateways
 		checkRoutes("127.0.0.10", "127.0.0.12")
@@ -57,7 +69,7 @@ var _ = When("Running the built binary", func() {
 	})
 
 	It("should remove a nexthop when a gateway becomes unhealthy", func() {
-		runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")
+		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 
 		// Start another healthcheck web server on 127.0.0.11:8080
 		stopServer := StartTestWebServer("127.0.0.11:8080")
@@ -72,8 +84,8 @@ var _ = When("Running the built binary", func() {
 	})
 })
 
-func runBinaryUpdateRoutes(startIP, endIP string) {
-	runBinary(
+func runBinaryUpdateRoutes(startIP, endIP string) func() {
+	return runBinary(
 		"-check-period", "250ms",
 		"-timeout", "100ms",
 		"-path", "/healthz",
@@ -86,7 +98,8 @@ func runBinaryUpdateRoutes(startIP, endIP string) {
 
 func checkRoutes(expectedNextHopsIPs ...string) {
 	Eventually(func(g Gomega) {
-		defaultRoutes := getDefaultIPv4Routes()
+		fmt.Fprintf(GinkgoWriter, "Checking for default route with next hops: %v\n", expectedNextHopsIPs)
+		defaultRoutes := getDefaultIPv4Routes(g)
 		if len(expectedNextHopsIPs) == 0 {
 			g.Expect(defaultRoutes).To(HaveLen(0), "There should be no default routes")
 			return
@@ -106,7 +119,7 @@ func checkRoutes(expectedNextHopsIPs ...string) {
 }
 
 // runBinary starts the built binary with the given arguments and returns a function to stop it
-func runBinary(args ...string) {
+func runBinary(args ...string) func() {
 	ctx, cancel := context.WithCancel(GinkgoT().Context())
 
 	cmd := exec.CommandContext(ctx, binaryPath, args...)
@@ -119,20 +132,38 @@ func runBinary(args ...string) {
 	err = cmd.Start()
 	Expect(err).NotTo(HaveOccurred(), "Failed to start binary")
 
-	DeferCleanup(func() {
+	return func() {
+		cmd.Process.Signal(os.Interrupt)
+		time.Sleep(500 * time.Millisecond) // Give it some time to shutdown
+
+		// Ensure the process has exited
 		cancel()
 		cmd.Wait()
-	})
+	}
 }
 
-func getDefaultIPv4Routes() [][]net.IP {
-	output, err := Run(exec.Command("ip", "-o", "-4", "route", "show", "default"))
-	Expect(err).NotTo(HaveOccurred(), "Failed to get default IPv4 routes")
+func logRoutingState() {
+	// Show all routes
+	output, err := Run(exec.Command("ip", "-o", "-4", "route", "show", "table", "all"))
+	Expect(err).NotTo(HaveOccurred(), "Failed to get IPv4 routes")
+	fmt.Fprintf(GinkgoWriter, "All IPv4 routes:\n%s\n", output)
+
+	// Show all rules
+	output, err = Run(exec.Command("ip", "rule", "list"))
+	Expect(err).NotTo(HaveOccurred(), "Failed to get IP rules")
+	fmt.Fprintf(GinkgoWriter, "All IP rules:\n%s\n", output)
+}
+
+// getDefaultIPv4Routes returns the current default IPv4 routes in the test namespace that are
+// assigned to the gateway table
+func getDefaultIPv4Routes(g Gomega) [][]net.IP {
+	output, err := Run(exec.Command("ip", "-o", "-4", "route", "show", "default", "table", "180"))
+	g.Expect(err).NotTo(HaveOccurred(), "Failed to get default IPv4 routes")
 
 	lines := GetNonEmptyLines(output)
 
 	regex, err := regexp.Compile(`via ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})`)
-	Expect(err).NotTo(HaveOccurred(), "Failed to compile regex")
+	g.Expect(err).NotTo(HaveOccurred(), "Failed to compile regex")
 
 	defaultRoutes := make([][]net.IP, 0, len(lines))
 	for _, line := range lines {
@@ -142,9 +173,7 @@ func getDefaultIPv4Routes() [][]net.IP {
 		for _, match := range matches {
 			for _, ip := range match[1:] {
 				nextHop := net.ParseIP(ip)
-				if nextHop == nil {
-					Fail("Failed to parse IP from route output")
-				}
+				g.Expect(nextHop).NotTo(BeNil(), "Failed to parse IP from route output")
 
 				hops = append(hops, nextHop)
 			}
