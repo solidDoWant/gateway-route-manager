@@ -58,6 +58,14 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 	}, nil
 }
 
+func (gm *GatewayMonitor) Close() error {
+	if closeableManager, ok := gm.routeManager.(routes.CloseableManager); ok {
+		return closeableManager.Close()
+	}
+
+	return nil
+}
+
 // Run starts the main monitoring loop
 func (gm *GatewayMonitor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(gm.config.CheckPeriod)

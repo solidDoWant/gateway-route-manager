@@ -21,7 +21,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	cfg := config.ParseFlags(os.Args[1:])
 
 	if err := cfg.Validate(); err != nil {
@@ -34,6 +34,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create gateway monitor: %w", err)
 	}
+
+	defer func() {
+		closeErr := gatewayMonitor.Close()
+		err = errors.Join(err, fmt.Errorf("failed to close gateway monitor: %w", closeErr))
+	}()
 
 	slog.Info("Starting gateway monitor", "check_period", cfg.CheckPeriod, "timeout", cfg.Timeout)
 
