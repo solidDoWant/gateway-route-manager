@@ -233,13 +233,38 @@ func (m *NetlinkManager) removeRules() error {
 	return nil
 }
 
+func (m *NetlinkManager) removeRoutes() error {
+	if m.gatewayTableID == 0 {
+		return nil
+	}
+
+	var cleanupErr error
+	err := m.handle.RouteListFilteredIter(netlink.FAMILY_V4, &netlink.Route{Table: m.gatewayTableID}, netlink.RT_FILTER_TABLE, func(route netlink.Route) bool {
+		if err := m.handle.RouteDel(&route); err != nil {
+			cleanupErr = fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
+			return false
+		}
+
+		slog.Debug("Removed default route", "gateway", route.Gw)
+		return true
+	})
+
+	return errors.Join(err, cleanupErr)
+}
+
 func (m *NetlinkManager) Close() error {
-	if err := m.removeRules(); err != nil {
-		return fmt.Errorf("failed to remove rules during close: %w", err)
+	removeRoutesErr := m.removeRoutes()
+	if removeRoutesErr != nil {
+		removeRoutesErr = fmt.Errorf("failed to remove routes during close: %w", removeRoutesErr)
+	}
+
+	removeRulesErr := m.removeRules()
+	if removeRulesErr != nil {
+		removeRulesErr = fmt.Errorf("failed to remove rules during close: %w", removeRulesErr)
 	}
 
 	m.handle.Close()
-	return nil
+	return errors.Join(removeRoutesErr, removeRulesErr)
 }
 
 // UpdateDefaultRoute updates the default route to use ECMP with the provided active gateways.

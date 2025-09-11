@@ -247,7 +247,7 @@ func TestNetlinkManager_UpdateDefaultRoute_RouteReplaceError(t *testing.T) {
 
 	err := manager.UpdateDefaultRoute(gateways)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to replace/add ECMP route")
 	mockHandle.AssertExpectations(t)
 }
@@ -538,6 +538,9 @@ func TestNetlinkManager_Close(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
+	// Mock the route removal operations (removeRoutes)
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
+
 	// Mock the rule list and deletion operations
 	rules := []netlink.Rule{
 		{Priority: 1001, Table: 100}, // gateway table rule
@@ -553,4 +556,104 @@ func TestNetlinkManager_Close(t *testing.T) {
 
 	assert.NoError(t, err)
 	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_removeRoutes_NoRoutes(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	// Mock RouteListFilteredIter to return no routes
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
+
+	err := manager.removeRoutes()
+
+	assert.NoError(t, err)
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_removeRoutes_WithRoutes(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	// Mock routes that should be removed
+	routes := []netlink.Route{
+		{
+			Dst: &net.IPNet{
+				IP:   net.IPv4zero,
+				Mask: net.CIDRMask(0, 32),
+			},
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 100,
+		},
+		{
+			Dst: &net.IPNet{
+				IP:   net.IPv4zero,
+				Mask: net.CIDRMask(0, 32),
+			},
+			Gw:    net.ParseIP("192.168.1.2"),
+			Table: 100,
+		},
+	}
+
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, routes)
+	mockHandle.On("RouteDel", &routes[0]).Return(nil)
+	mockHandle.On("RouteDel", &routes[1]).Return(nil)
+
+	err := manager.removeRoutes()
+
+	assert.NoError(t, err)
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_removeRoutes_ListError(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	expectedError := errors.New("failed to list routes")
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(expectedError, []netlink.Route{})
+
+	err := manager.removeRoutes()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list routes")
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_removeRoutes_DeleteError(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	routes := []netlink.Route{
+		{
+			Dst: &net.IPNet{
+				IP:   net.IPv4zero,
+				Mask: net.CIDRMask(0, 32),
+			},
+			Gw:    net.ParseIP("192.168.1.1"),
+			Table: 100,
+		},
+	}
+
+	expectedError := errors.New("failed to delete route")
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, routes)
+	mockHandle.On("RouteDel", &routes[0]).Return(expectedError)
+
+	err := manager.removeRoutes()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to delete default route via 192.168.1.1")
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_removeRoutes_GatewayTableIDZero(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	// Set gatewayTableID to 0 to test the early return
+	manager.gatewayTableID = 0
+
+	err := manager.removeRoutes()
+
+	assert.NoError(t, err)
+	// No mock expectations should be called since the function returns early
 }
