@@ -19,9 +19,20 @@ type mockNetlinkHandle struct {
 	mock.Mock
 }
 
-func (m *mockNetlinkHandle) RouteList(link netlink.Link, family int) ([]netlink.Route, error) {
-	args := m.Called(link, family)
-	return args.Get(0).([]netlink.Route), args.Error(1)
+func (m *mockNetlinkHandle) RouteListFilteredIter(family int, filter *netlink.Route, filterMask uint64, f func(netlink.Route) (cont bool)) error {
+	args := m.Called(family, filter, filterMask, f)
+
+	// Get the routes that should be iterated over
+	if len(args) > 1 && args.Get(1) != nil {
+		routes := args.Get(1).([]netlink.Route)
+		for _, route := range routes {
+			if !f(route) {
+				break
+			}
+		}
+	}
+
+	return args.Error(0)
 }
 
 func (m *mockNetlinkHandle) RouteReplace(route *netlink.Route) error {
@@ -70,7 +81,7 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return existing routes in the gateway table
+	// Mock RouteListFilteredIter to return existing routes in the gateway table
 	existingRoutes := []netlink.Route{
 		{
 			Dst: &net.IPNet{
@@ -81,7 +92,7 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways(t *testing.T) {
 			Table: 100, // gateway table
 		},
 	}
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(existingRoutes, nil)
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, existingRoutes)
 	mockHandle.On("RouteDel", &existingRoutes[0]).Return(nil)
 
 	err := manager.UpdateDefaultRoute([]net.IP{})
@@ -95,11 +106,11 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways_RouteListError(t *testing.
 	manager := createTestNetlinkManager(mockHandle)
 
 	expectedError := errors.New("failed to list routes")
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return([]netlink.Route{}, expectedError)
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(expectedError, []netlink.Route{})
 
 	err := manager.UpdateDefaultRoute([]net.IP{})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to remove default route")
 	assert.Contains(t, err.Error(), "failed to list routes")
 	mockHandle.AssertExpectations(t)
@@ -121,12 +132,12 @@ func TestNetlinkManager_UpdateDefaultRoute_NoGateways_RouteDelError(t *testing.T
 	}
 	expectedError := errors.New("failed to delete route")
 
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(existingRoutes, nil)
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, existingRoutes)
 	mockHandle.On("RouteDel", &existingRoutes[0]).Return(expectedError)
 
 	err := manager.UpdateDefaultRoute([]net.IP{})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to remove default route")
 	assert.Contains(t, err.Error(), "failed to delete default route via 192.168.1.1")
 	mockHandle.AssertExpectations(t)
@@ -280,8 +291,8 @@ func TestNetlinkManager_removeDefaultRoute_NoExistingRoutes(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return no routes
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return([]netlink.Route{}, nil)
+	// Mock RouteListFilteredIter to return no routes
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
 
 	err := manager.removeDefaultRoute()
 
@@ -293,17 +304,8 @@ func TestNetlinkManager_removeDefaultRoute_NonDefaultRoutes(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return non-default routes
-	routes := []netlink.Route{
-		{
-			Dst: &net.IPNet{
-				IP:   net.ParseIP("10.0.0.0"),
-				Mask: net.CIDRMask(8, 32),
-			},
-			Gw: net.ParseIP("192.168.1.1"),
-		},
-	}
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(routes, nil)
+	// Mock RouteListFilteredIter to return no routes in gateway table
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
 
 	err := manager.removeDefaultRoute()
 
@@ -315,17 +317,8 @@ func TestNetlinkManager_removeDefaultRoute_WithDefaultRoutes(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Mock RouteList to return mix of routes in different tables
-	routes := []netlink.Route{
-		{
-			// Route in main table (should be ignored)
-			Dst: &net.IPNet{
-				IP:   net.ParseIP("10.0.0.0"),
-				Mask: net.CIDRMask(8, 32),
-			},
-			Gw:    net.ParseIP("192.168.1.1"),
-			Table: 254, // main table
-		},
+	// Mock RouteListFilteredIter to return routes only from gateway table
+	gatewayRoutes := []netlink.Route{
 		{
 			// Route in gateway table (should be deleted)
 			Dst: &net.IPNet{
@@ -353,9 +346,9 @@ func TestNetlinkManager_removeDefaultRoute_WithDefaultRoutes(t *testing.T) {
 		},
 	}
 
-	mockHandle.On("RouteList", nil, netlink.FAMILY_V4).Return(routes, nil)
-	mockHandle.On("RouteDel", &routes[1]).Return(nil) // First gateway table route
-	mockHandle.On("RouteDel", &routes[2]).Return(nil) // Second gateway table route
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, gatewayRoutes)
+	mockHandle.On("RouteDel", &gatewayRoutes[0]).Return(nil) // First gateway table route
+	mockHandle.On("RouteDel", &gatewayRoutes[1]).Return(nil) // Second gateway table route
 
 	err := manager.removeDefaultRoute()
 
@@ -456,4 +449,108 @@ func TestMockNetlinkHandle_InterfaceCompliance(t *testing.T) {
 	var _ netlinkHandle = mockHandle
 
 	assert.NotNil(t, mockHandle)
+}
+
+func TestNewNetlinkManager_WithNetworkExclusion(t *testing.T) {
+	// Skip this test if we don't have root privileges, as it tries to modify actual network rules
+	if !hasNetworkPrivileges() {
+		t.Skip("Skipping test that requires network privileges")
+	}
+
+	// Test with network exclusion parameters
+	excludeNets := []*net.IPNet{
+		{
+			IP:   net.ParseIP("10.0.0.0"),
+			Mask: net.CIDRMask(8, 32),
+		},
+		{
+			IP:   net.ParseIP("192.168.0.0"),
+			Mask: net.CIDRMask(16, 32),
+		},
+	}
+
+	manager, err := NewNetlinkManager(excludeNets, 100, 1000)
+
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+	require.Equal(t, 100, manager.gatewayTableID)
+	require.Equal(t, 101, manager.fallthroughTableID)
+	require.Equal(t, 1000, manager.firstExcludeRulePreference)
+	require.Equal(t, 1003, manager.fallthroughTableRulePreference) // 1000 + 2 networks + 1
+	require.Equal(t, 1002, manager.gatewayTableRulePreference)     // fallthrough - 1
+	require.Equal(t, excludeNets, manager.excludeNets)
+
+	// Clean up
+	defer manager.Close()
+}
+
+func TestNewNetlinkManager_InvalidParameters(t *testing.T) {
+	tests := []struct {
+		name           string
+		excludeNets    []*net.IPNet
+		firstTableID   int
+		firstRulePref  int
+		expectedErrMsg string
+		skipIfNoPrivs  bool
+	}{
+		{
+			name:           "invalid table ID too low",
+			excludeNets:    []*net.IPNet{},
+			firstTableID:   0,
+			firstRulePref:  1000,
+			expectedErrMsg: "invalid first table ID",
+			skipIfNoPrivs:  false,
+		},
+		{
+			name:           "invalid table ID too high",
+			excludeNets:    []*net.IPNet{},
+			firstTableID:   255,
+			firstRulePref:  1000,
+			expectedErrMsg: "invalid first table ID",
+			skipIfNoPrivs:  false,
+		},
+		{
+			name:           "invalid rule preference too low",
+			excludeNets:    []*net.IPNet{},
+			firstTableID:   100,
+			firstRulePref:  0,
+			expectedErrMsg: "invalid first rule preference",
+			skipIfNoPrivs:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipIfNoPrivs && !hasNetworkPrivileges() {
+				t.Skip("Skipping test that requires network privileges")
+			}
+
+			manager, err := NewNetlinkManager(tt.excludeNets, tt.firstTableID, tt.firstRulePref)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErrMsg)
+			assert.Nil(t, manager)
+		})
+	}
+}
+
+func TestNetlinkManager_Close(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	// Mock the rule list and deletion operations
+	rules := []netlink.Rule{
+		{Priority: 1001, Table: 100}, // gateway table rule
+		{Priority: 1002, Table: 101}, // fallthrough table rule
+	}
+
+	mockHandle.On("RuleList", netlink.FAMILY_V4).Return(rules, nil)
+	mockHandle.On("RuleDel", &rules[0]).Return(nil) // gateway rule
+	mockHandle.On("RuleDel", &rules[1]).Return(nil) // fallthrough rule
+	mockHandle.On("Close").Return()
+
+	err := manager.Close()
+
+	assert.NoError(t, err)
+	mockHandle.AssertExpectations(t)
 }
