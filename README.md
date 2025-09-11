@@ -47,6 +47,7 @@ docker run --rm --name gateway-route-manager \
   * A full shell
   * Standard CLI tools
   * keepalived, conntrack-tools, nmap, ipvsadm
+* `latest`, `latest-extended` - Same as above, but always points to the latest release
 
 
 ## Configuration
