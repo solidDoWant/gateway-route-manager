@@ -26,6 +26,7 @@ gateway-route-manager \
   -port 9999 \
   -check-period 10s \
   -timeout 5s \
+  -exclude-cidr 192.168.0.0/16 \
   -log-level debug
 ```
 
@@ -37,7 +38,8 @@ docker run --rm --name gateway-route-manager \
   gateway-route-manager:<TAG-SET-ME> \
   -start-ip 192.168.1.10 \
   -end-ip 192.168.1.20 \
-  -port 8080
+  -port 8080 \
+  -exclude-cidr 192.168.0.0/16
 ```
 
 #### Available Tags
@@ -54,17 +56,18 @@ docker run --rm --name gateway-route-manager \
 
 ### Command Line Flags
 
-| Flag            | Default      | Description                                  |
-| --------------- | ------------ | -------------------------------------------- |
-| `-start-ip`     | *(required)* | Starting IP address for the gateway range    |
-| `-end-ip`       | *(required)* | Ending IP address for the gateway range      |
-| `-port`         | `80`         | Port to target for health checks             |
-| `-path`         | `/`          | URL path for health checks                   |
-| `-scheme`       | `http`       | Scheme to use (`http` or `https`)            |
-| `-timeout`      | `1s`         | Timeout for individual health checks         |
-| `-check-period` | `3s`         | How often to perform health checks           |
-| `-metrics-port` | `9090`       | Port for Prometheus metrics endpoint         |
-| `-log-level`    | `info`       | Log level (`debug`, `info`, `warn`, `error`) |
+| Flag            | Default      | Description                                                                               |
+| --------------- | ------------ | ----------------------------------------------------------------------------------------- |
+| `-start-ip`     | *(required)* | Starting IP address for the gateway range                                                 |
+| `-end-ip`       | *(required)* | Ending IP address for the gateway range                                                   |
+| `-port`         | `80`         | Port to target for health checks                                                          |
+| `-path`         | `/`          | URL path for health checks                                                                |
+| `-scheme`       | `http`       | Scheme to use (`http` or `https`)                                                         |
+| `-timeout`      | `1s`         | Timeout for individual health checks                                                      |
+| `-check-period` | `3s`         | How often to perform health checks                                                        |
+| `-metrics-port` | `9090`       | Port for Prometheus metrics endpoint                                                      |
+| `-log-level`    | `info`       | Log level (`debug`, `info`, `warn`, `error`)                                              |
+| `-exclude-cidr` | *(none)*     | Destinations that should not be routed via the gateways (can be specified multiple times) |
 
 ### Example Configurations
 
@@ -87,6 +90,37 @@ gateway-route-manager \
 ```shell
 gateway-route-manager -start-ip 192.168.1.1 -end-ip 192.168.1.1
 ```
+
+#### Excluding Local Networks
+```shell
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -exclude-cidr 10.0.0.0/8 \
+  -exclude-cidr 192.168.0.0/16 \
+  -exclude-cidr 172.16.0.0/12
+```
+
+### Network Exclusion
+
+The `-exclude-cidr` flag allows you to specify network ranges that should **not** be routed through the managed gateways. Traffic to these destinations will continue to use the system's normal routing tables instead of being sent via the gateways.
+
+This is useful for:
+* Keeping local network traffic on the local network
+* Excluding specific networks from VPN routing (VPN split tunneling)
+
+For example, if you're using this tool to load balance traffic across VPN gateways, you typically want to exclude networks to ensure local network access continues to work:
+
+```shell
+# Exclude all private network ranges
+gateway-route-manager \
+  -start-ip 10.0.1.10 \
+  -end-ip 10.0.1.15 \
+  -exclude-cidr 10.0.0.0/8 \
+  -exclude-cidr 172.16.0.0/12 \
+  -exclude-cidr 192.168.0.0/16
+```
+
 ## Use Cases
 
 ### HA VPN Load Balancing with Gluetun
