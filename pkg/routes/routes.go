@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -257,24 +258,27 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 }
 
 func (m *NetlinkManager) removeDefaultRoute() error {
-	routes, err := m.handle.RouteList(nil, netlink.FAMILY_V4)
-	if err != nil {
-		return fmt.Errorf("failed to list routes: %w", err)
-	}
-
-	for _, route := range routes {
+	var cleanupErr error
+	err := m.handle.RouteListFilteredIter(netlink.FAMILY_V4, &netlink.Route{Table: m.gatewayTableID}, netlink.RT_FILTER_TABLE, func(route netlink.Route) bool {
 		if route.Table != m.gatewayTableID {
-			continue
+			slog.Debug("Skipping route not in gateway table", "table", route.Table, "gateway_table", m.gatewayTableID, "route", route.String())
+			return true
 		}
 
 		if err := m.handle.RouteDel(&route); err != nil {
-			return fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
+			cleanupErr = fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
+			return false
 		}
 
 		slog.Debug("Removed default route", "gateway", route.Gw)
+		return true
+	})
+
+	if err != nil {
+		err = fmt.Errorf("failed to list routes for deletion: %w", err)
 	}
 
-	return nil
+	return errors.Join(err, cleanupErr)
 }
 
 func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {

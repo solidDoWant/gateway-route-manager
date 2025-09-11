@@ -9,7 +9,7 @@ import (
 // These should be a 1:1 mapping of the methods used from netlink.Handle for normal operations.
 type netlinkHandle interface {
 	// Routes
-	RouteList(link netlink.Link, family int) ([]netlink.Route, error)
+	RouteListFilteredIter(family int, filter *netlink.Route, filterMask uint64, f func(netlink.Route) (cont bool)) error
 	RouteReplace(route *netlink.Route) error
 	RouteDel(route *netlink.Route) error
 
