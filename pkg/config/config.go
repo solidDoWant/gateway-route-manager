@@ -15,15 +15,18 @@ import (
 
 // Config holds all configuration options for the gateway route manager
 type Config struct {
-	StartIP     string
-	EndIP       string
-	Timeout     time.Duration
-	CheckPeriod time.Duration
-	Port        int
-	URLPath     string
-	Scheme      string
-	LogLevel    string
-	MetricsPort int
+	StartIP             string
+	EndIP               string
+	Timeout             time.Duration
+	CheckPeriod         time.Duration
+	Port                int
+	URLPath             string
+	Scheme              string
+	LogLevel            string
+	MetricsPort         int
+	CIDRsToExclude      []*net.IPNet
+	FirstRoutingTableID int
+	FirstRulePreference int
 }
 
 // ParseFlags parses command line flags and returns a Config struct
@@ -39,6 +42,17 @@ func ParseFlags(args []string) Config {
 	flag.StringVar(&config.Scheme, "scheme", "http", "Scheme to use (http or https)")
 	flag.StringVar(&config.LogLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Port for Prometheus metrics endpoint")
+	flag.IntVar(&config.FirstRoutingTableID, "first-routing-table-id", 180, "First routing table ID to use for gateway route logic")
+	flag.IntVar(&config.FirstRulePreference, "first-rule-preference", 10888, "First rule preference to use for gateway route logic")
+	flag.Func("exclude-cidr", "CIDR to exclude from gateway routing (can be specified multiple times)", func(s string) error {
+		_, cidr, err := net.ParseCIDR(s)
+		if err != nil {
+			return fmt.Errorf("invalid CIDR: %w", err)
+		}
+
+		config.CIDRsToExclude = append(config.CIDRsToExclude, cidr)
+		return nil
+	})
 
 	flag.CommandLine.Parse(args)
 

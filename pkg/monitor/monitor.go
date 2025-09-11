@@ -42,7 +42,7 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 	// Set total gateway count
 	metrics.TotalGatewayCount.Set(float64(len(gateways)))
 
-	routeManager, err := routes.NewNetlinkManager()
+	routeManager, err := routes.NewNetlinkManager(cfg.CIDRsToExclude, cfg.FirstRoutingTableID, cfg.FirstRulePreference)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create route manager: %w", err)
 	}
