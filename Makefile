@@ -5,6 +5,8 @@ GO := /usr/local/go/bin/go
 PROJECT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 MODULE_NAME := $(shell "$(GO)" list -m)
 
+CONTAINER_TOOL ?= docker
+
 ##@ General
 
 .PHONY: help
