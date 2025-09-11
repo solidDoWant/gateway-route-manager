@@ -193,7 +193,7 @@ func TestStartMetricsServer(t *testing.T) {
 
 		// Try to bind to an invalid port (negative port should fail)
 		err := StartMetricsServer(ctx, cancel, -1)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to bind")
 	})
 
