@@ -73,6 +73,9 @@ func StartTestWebServer(address string) func() {
 	mux.Handle("/healthz", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "200 OK")
 	}))
+	mux.Handle("/v1/ip", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"public_ip": "%s"}`, testNetNSAddress)
+	}))
 	server := &http.Server{
 		Addr:    address,
 		Handler: mux,
