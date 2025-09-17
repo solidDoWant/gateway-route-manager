@@ -98,17 +98,17 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 	return runBinary(
 		append(
 			ddnsArgs,
-		"-check-period", "250ms",
-		"-timeout", "100ms",
-		"-path", "/healthz",
-		"-port", "8080",
-		"-start-ip", startIP,
-		"-end-ip", endIP,
-		"-exclude-cidr", "10.0.0.0/8",
-		"-exclude-cidr", "172.16.0.0/12",
-		"-exclude-cidr", "192.168.0.0/16",
-		"-exclude-reserved-cidrs",
-		"-log-level", "debug",
+			"-check-period", "250ms",
+			"-timeout", "100ms",
+			"-path", "/healthz",
+			"-port", "8080",
+			"-start-ip", startIP,
+			"-end-ip", endIP,
+			"-exclude-cidr", "10.0.0.0/8",
+			"-exclude-cidr", "172.16.0.0/12",
+			"-exclude-cidr", "192.168.0.0/16",
+			"-exclude-reserved-cidrs",
+			"-log-level", "debug",
 		)...,
 	)
 }
