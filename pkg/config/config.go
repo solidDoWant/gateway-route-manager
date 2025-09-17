@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -31,6 +32,18 @@ var reservedCIDRs = []string{
 	"224.0.0.0/3",     // Multicast + MCAST-TEST-NET + Reserved for future use + Broadcast
 }
 
+var ddnsProviders = []string{"changeip"}
+
+// PublicIPServiceConfig holds configuration for the public IP service
+type PublicIPServiceConfig struct {
+	Port     int
+	Hostname string
+	Scheme   string
+	Path     string
+	Username string
+	Password string
+}
+
 // Config holds all configuration options for the gateway route manager
 type Config struct {
 	StartIP             string
@@ -45,6 +58,13 @@ type Config struct {
 	CIDRsToExclude      []*net.IPNet
 	FirstRoutingTableID int
 	FirstRulePreference int
+	// DDNS configuration
+	DDNSProvider string
+	DDNSUsername string
+	DDNSPassword string
+	DDNSHostname string
+	// Public IP service configuration
+	PublicIPService PublicIPServiceConfig
 }
 
 // ParseFlags parses command line flags and returns a Config struct
@@ -57,13 +77,28 @@ func ParseFlags(args []string) Config {
 	flag.StringVar(&config.EndIP, "end-ip", "", "Ending IP address for the range")
 	flag.DurationVar(&config.Timeout, "timeout", 1*time.Second, "Timeout for health checks")
 	flag.DurationVar(&config.CheckPeriod, "check-period", 3*time.Second, "How often to check gateways")
-	flag.IntVar(&config.Port, "port", 80, "Port to target for health checks")
+	flag.IntVar(&config.Port, "port", 9999, "Port to target for health checks")
 	flag.StringVar(&config.URLPath, "path", "/", "URL path for health checks")
 	flag.StringVar(&config.Scheme, "scheme", "http", "Scheme to use (http or https)")
 	flag.StringVar(&config.LogLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Port for Prometheus metrics endpoint")
 	flag.IntVar(&config.FirstRoutingTableID, "first-routing-table-id", 180, "First routing table ID to use for gateway route logic")
 	flag.IntVar(&config.FirstRulePreference, "first-rule-preference", 10888, "First rule preference to use for gateway route logic")
+
+	// DDNS configuration flags
+	flag.StringVar(&config.DDNSProvider, "ddns-provider", "", fmt.Sprintf("DDNS provider (currently supports: %s)", strings.Join(ddnsProviders, ", ")))
+	flag.StringVar(&config.DDNSUsername, "ddns-username", "", "DDNS username (required if DDNS provider is specified)")
+	flag.StringVar(&config.DDNSPassword, "ddns-password", "", "DDNS password (required if DDNS provider is specified, defaults to DDNS_PASSWORD)")
+	flag.StringVar(&config.DDNSHostname, "ddns-hostname", "", "DDNS hostname to update (required if DDNS provider is specified)")
+
+	// Public IP service configuration flags
+	flag.StringVar(&config.PublicIPService.Hostname, "public-ip-service-hostname", "", "Hostname for public IP service (if unset, queries each gateway)")
+	flag.IntVar(&config.PublicIPService.Port, "public-ip-service-port", 443, "Port for gateway's public IP service to fetch its public IP addresses")
+	flag.StringVar(&config.PublicIPService.Scheme, "public-ip-service-scheme", "https", "Scheme for public IP service (http or https)")
+	flag.StringVar(&config.PublicIPService.Path, "public-ip-service-path", "/", "URL path for public IP service")
+	flag.StringVar(&config.PublicIPService.Username, "public-ip-service-username", "", "Username for public IP service HTTP basic auth")
+	flag.StringVar(&config.PublicIPService.Password, "public-ip-service-password", "", "Password for public IP service HTTP basic auth (defaults to PUBLIC_IP_SERVICE_PASSWORD)")
+
 	flag.Func("exclude-cidr", "CIDR to exclude from gateway routing (can be specified multiple times)", func(s string) error {
 		_, cidr, err := net.ParseCIDR(s)
 		if err != nil {
@@ -76,6 +111,16 @@ func ParseFlags(args []string) Config {
 	excludeReservedDestinations := flag.Bool("exclude-reserved-cidrs", true, "Exclude reserved IPv4 destinations (private networks, lookback, multicast, etc.) from gateway routing")
 
 	flag.CommandLine.Parse(args)
+
+	// Handle DDNS password fallback to environment variable
+	if config.DDNSPassword == "" && config.DDNSProvider != "" {
+		config.DDNSPassword = os.Getenv("DDNS_PASSWORD")
+	}
+
+	// Handle public IP service password fallback to environment variable
+	if config.PublicIPService.Password == "" {
+		config.PublicIPService.Password = os.Getenv("PUBLIC_IP_SERVICE_PASSWORD")
+	}
 
 	if excludeReservedDestinations != nil && *excludeReservedDestinations {
 		for _, cidrStr := range reservedCIDRs {
@@ -137,6 +182,42 @@ func (c Config) Validate() error {
 		return fmt.Errorf("log level must be one of: %s", strings.Join(validLevels, ", "))
 	}
 
+	// Validate DDNS configuration
+	if c.DDNSProvider != "" {
+		if !slices.Contains(ddnsProviders, strings.ToLower(c.DDNSProvider)) {
+			return fmt.Errorf("ddns-provider must be one of: %s", strings.Join(ddnsProviders, ", "))
+		}
+
+		if c.DDNSUsername == "" {
+			return fmt.Errorf("ddns-username is required when ddns-provider is specified")
+		}
+
+		if c.DDNSPassword == "" {
+			return fmt.Errorf("ddns-password is required when ddns-provider is specified (can be provided via DDNS_PASSWORD)")
+		}
+
+		if c.DDNSHostname == "" {
+			return fmt.Errorf("ddns-hostname is required when ddns-provider is specified")
+		}
+	}
+
+	if c.PublicIPService.Port < 1 || c.PublicIPService.Port > 65535 {
+		return fmt.Errorf("public-ip-service-port must be between 1 and 65535")
+	}
+
+	// Validate public IP service configuration
+	if c.PublicIPService.Scheme != "" {
+		if c.PublicIPService.Scheme != "http" && c.PublicIPService.Scheme != "https" {
+			return fmt.Errorf("public-ip-service-scheme must be 'http' or 'https'")
+		}
+	}
+
+	// If username is provided, password should also be provided
+	if c.PublicIPService.Username != "" && c.PublicIPService.Password == "" ||
+		c.PublicIPService.Username == "" && c.PublicIPService.Password != "" {
+		return fmt.Errorf("public-ip-service-username and public-ip-service-password must be specified together or not at all")
+	}
+
 	return nil
 }
 
@@ -154,4 +235,9 @@ func (c Config) GetSlogLevel() slog.Level {
 	default:
 		return slog.LevelInfo // Default fallback
 	}
+}
+
+// IsDDNSEnabled returns true if DDNS is configured
+func (c Config) IsDDNSEnabled() bool {
+	return c.DDNSProvider != ""
 }

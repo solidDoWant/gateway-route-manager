@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/ddns"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/gateway"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/routes"
@@ -20,11 +22,13 @@ import (
 
 // GatewayMonitor manages the monitoring of gateways and route updates
 type GatewayMonitor struct {
-	config       config.Config
-	gateways     []gateway.Gateway
-	client       *http.Client
-	metrics      *metrics.Metrics
-	routeManager routes.Manager
+	config        config.Config
+	gateways      []gateway.Gateway
+	client        *http.Client
+	metrics       *metrics.Metrics
+	routeManager  routes.Manager
+	ddnsProvider  ddns.Provider
+	lastActiveIPs []string // Track the last set of active public IPs for DDNS updates
 }
 
 // New creates a new GatewayMonitor instance
@@ -47,6 +51,15 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 		return nil, fmt.Errorf("failed to create route manager: %w", err)
 	}
 
+	var ddnsProvider ddns.Provider
+	if cfg.IsDDNSEnabled() {
+		ddnsProvider, err = ddns.NewProvider(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create DDNS provider: %w", err)
+		}
+		slog.Info("DDNS enabled", "provider", ddnsProvider.Name(), "hostname", cfg.DDNSHostname)
+	}
+
 	return &GatewayMonitor{
 		config:   cfg,
 		gateways: gateways,
@@ -55,6 +68,7 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 		},
 		metrics:      metrics,
 		routeManager: routeManager,
+		ddnsProvider: ddnsProvider,
 	}, nil
 }
 
@@ -93,10 +107,29 @@ func (gm *GatewayMonitor) Run(ctx context.Context) error {
 func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 	start := time.Now()
 	gm.checkGateways(ctx)
-	if err := gm.updateRoutes(); err != nil {
+
+	// Collect active gateways
+	activeGateways := make([]*gateway.Gateway, 0, len(gm.gateways))
+	for _, gateway := range gm.gateways {
+		if gateway.IsActive {
+			activeGateways = append(activeGateways, &gateway)
+		}
+	}
+
+	if err := gm.updateRoutes(activeGateways); err != nil {
 		gm.metrics.ErrorsTotal.WithLabelValues("route_error").Inc()
 		return fmt.Errorf("failed to update routes: %w", err)
 	}
+
+	// Perform DDNS update if enabled
+	if gm.ddnsProvider != nil {
+		if err := gm.updateDDNS(ctx, activeGateways); err != nil {
+			gm.metrics.ErrorsTotal.WithLabelValues("ddns_error").Inc()
+			// Log the error but don't fail the cycle
+			slog.ErrorContext(ctx, "DDNS update failed", "error", err)
+		}
+	}
+
 	gm.metrics.CheckCycleDurationSeconds.Observe(time.Since(start).Seconds())
 	gm.metrics.CheckCyclesTotal.Inc()
 	return nil
@@ -191,25 +224,52 @@ func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway)
 	return false
 }
 
-func (gm *GatewayMonitor) updateRoutes() error {
+func (gm *GatewayMonitor) updateRoutes(activeGateways []*gateway.Gateway) error {
 	start := time.Now()
 	defer func() {
 		gm.metrics.RouteUpdateDurationSeconds.Observe(time.Since(start).Seconds())
 	}()
 
-	activeGateways := make([]net.IP, 0, len(gm.gateways))
-	for _, gateway := range gm.gateways {
-		if gateway.IsActive {
-			activeGateways = append(activeGateways, gateway.IP)
-		}
+	activeGatewayAddresses := make([]net.IP, len(activeGateways))
+	for i, gw := range activeGateways {
+		activeGatewayAddresses[i] = gw.IP
 	}
 
-	if err := gm.routeManager.UpdateDefaultRoute(activeGateways); err != nil {
+	if err := gm.routeManager.UpdateDefaultRoute(activeGatewayAddresses); err != nil {
 		gm.metrics.RouteUpdatesTotal.WithLabelValues("update", "failure").Inc()
 		return err
 	}
 
 	gm.metrics.RouteUpdatesTotal.WithLabelValues("update", "success").Inc()
 	gm.metrics.DefaultRouteGateways.Set(float64(len(activeGateways)))
+	return nil
+}
+
+// updateDDNS updates DNS records for active gateways with their public IP addresses
+func (m *GatewayMonitor) updateDDNS(ctx context.Context, activeGateways []*gateway.Gateway) error {
+	if m.ddnsProvider == nil {
+		return nil
+	}
+
+	publicIPs := make([]string, 0, len(activeGateways))
+	for _, gw := range activeGateways {
+		if err := gw.FetchPublicIP(ctx, m.config.PublicIPService, m.config.Timeout); err != nil {
+			slog.WarnContext(ctx, "Failed to fetch public IP from gateway", "gateway", gw.IP.String(), "error", err)
+			continue
+		}
+		publicIPs = append(publicIPs, gw.PublicIP)
+	}
+	slices.Sort(publicIPs)
+
+	if !slices.Equal(publicIPs, m.lastActiveIPs) {
+		slog.InfoContext(ctx, "Public IPs changed, updating DDNS", "ips", publicIPs)
+		if err := m.ddnsProvider.UpdateRecords(ctx, publicIPs); err != nil {
+			return fmt.Errorf("failed to update DNS records: %w", err)
+		}
+	} else {
+		slog.DebugContext(ctx, "Public IPs unchanged, skipping DDNS update", "ips", publicIPs)
+	}
+
+	m.lastActiveIPs = publicIPs
 	return nil
 }

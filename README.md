@@ -12,6 +12,7 @@ This tool was specifically designed to work with [Gluetun](https://github.com/qd
 
 * Gateway health monitoring via HTTP status checks. A `2xx` response marks the gateway as available, and all other responses (or lack thereof) mark the gateway as inactive.
 * Routing table updates via route replacements. Routes are only deleted if no gateways are available, so traffic is not dropped upon routing table update.
+* Optional DDNS updates. DNS records for a domain are automatically updated to resolve to all (and only) active gateways.[ChangeIP](http://changeip.com/) is the only provider currently supported (file an issue for more).
 * A Prometheus metrics endpont is available to report information about the gateway and routing table state. See [here for a detailed description of available metrics](./Metrics.md).
 
 ## Quick Start
@@ -54,19 +55,29 @@ docker run --rm --name gateway-route-manager \
 
 ### Command Line Flags
 
-| Flag                      | Default      | Description                                                                                    |
-| ------------------------- | ------------ | ---------------------------------------------------------------------------------------------- |
-| `-start-ip`               | *(required)* | Starting IP address for the gateway range                                                      |
-| `-end-ip`                 | *(required)* | Ending IP address for the gateway range                                                        |
-| `-port`                   | `80`         | Port to target for health checks                                                               |
-| `-path`                   | `/`          | URL path for health checks                                                                     |
-| `-scheme`                 | `http`       | Scheme to use (`http` or `https`)                                                              |
-| `-timeout`                | `1s`         | Timeout for individual health checks                                                           |
-| `-check-period`           | `3s`         | How often to perform health checks                                                             |
-| `-metrics-port`           | `9090`       | Port for Prometheus metrics endpoint                                                           |
-| `-log-level`              | `info`       | Log level (`debug`, `info`, `warn`, `error`)                                                   |
-| `-exclude-cidr`           | *(none)*     | Destinations that should not be routed via the gateways (can be specified multiple times)      |
-| `-exclude-reserved-cidrs` | `true`       | Automatically exclude reserved IPv4 destinations (private networks, loopback, multicast, etc.) |
+| Flag                          | Default      | Description                                                                                    |
+| ----------------------------- | ------------ | ---------------------------------------------------------------------------------------------- |
+| `-start-ip`                   | *(required)* | Starting IP address for the gateway range                                                      |
+| `-end-ip`                     | *(required)* | Ending IP address for the gateway range                                                        |
+| `-port`                       | `80`         | Port to target for health checks                                                               |
+| `-path`                       | `/`          | URL path for health checks                                                                     |
+| `-scheme`                     | `http`       | Scheme to use (`http` or `https`)                                                              |
+| `-timeout`                    | `1s`         | Timeout for individual health checks                                                           |
+| `-check-period`               | `3s`         | How often to perform health checks                                                             |
+| `-metrics-port`               | `9090`       | Port for Prometheus metrics endpoint                                                           |
+| `-log-level`                  | `info`       | Log level (`debug`, `info`, `warn`, `error`)                                                   |
+| `-exclude-cidr`               | *(none)*     | Destinations that should not be routed via the gateways (can be specified multiple times)      |
+| `-exclude-reserved-cidrs`     | `true`       | Automatically exclude reserved IPv4 destinations (private networks, loopback, multicast, etc.) |
+| `-ddns-provider`              | *(none)*     | DDNS provider to use for updating DNS records (valid values: `changeip`)                       |
+| `-ddns-username`              | *(none)*     | DDNS username (required if DDNS provider is specified)                                         |
+| `-ddns-password`              | *(none)*     | DDNS password (required if DDNS provider is specified, falls back to `DDNS_PASSWORD`)          |
+| `-ddns-hostname`              | *(none)*     | DDNS hostname to update (required if DDNS provider is specified)                               |
+| `-public-ip-service-hostname` | *(none)*     | Hostname for public IP service (if unset, queries each gateway individually)                   |
+| `-public-ip-service-port`     | `443`        | Port for gateway public IP service to fetch public IP addresses                                |
+| `-public-ip-service-scheme`   | `https`      | Scheme for public IP service (`http` or `https`)                                               |
+| `-public-ip-service-path`     | `/`          | URL path for public IP service endpoint                                                        |
+| `-public-ip-service-username` | *(none)*     | Username for public IP service HTTP basic authentication                                       |
+| `-public-ip-service-password` | *(none)*     | Password for public IP service HTTP basic auth (falls back to `PUBLIC_IP_SERVICE_PASSWORD`)    |
 
 ### Example Configurations
 
@@ -100,6 +111,34 @@ gateway-route-manager \
   -end-ip 192.168.1.15 \
   -exclude-cidr 1.2.3.4/32 \
   -exclude-cidr 5.6.7.8/32
+```
+
+#### With DDNS Support
+
+Enable Dynamic DNS updates to automatically update DNS records with active gateway public IPs:
+
+```shell
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -ddns-provider changeip \
+  -ddns-username myuser \
+  -ddns-password mypass \
+  -ddns-hostname mygateways.example.com \
+  -public-ip-service-port 8000 \
+  -public-ip-service-path /v1/ip
+```
+
+Or using environment variable for password:
+
+```shell
+export DDNS_PASSWORD=mypass
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -ddns-provider changeip \
+  -ddns-username myuser \
+  -ddns-hostname mygateways.example.com
 ```
 
 #### Disabling Reserved Network Exclusions
@@ -172,6 +211,79 @@ gateway-route-manager \
   -exclude-cidr 10.0.0.0/8 \
   -exclude-cidr 172.16.0.0/12 \
   -exclude-cidr 192.168.0.0/16
+```
+
+### Dynamic DNS (DDNS) Support
+
+Gateway Route Manager can automatically update DNS records with the public IP addresses of active gateways. This is useful for:
+
+* External services that need to connect through your gateways, as the gateway's public IP addresses may frequently change
+* Load balancing external traffic across multiple gateway exit points
+* Automatic failover when gateways become unavailable
+
+#### How DDNS Works
+
+For each healthy and active gateway, the tool queries `<user>@<pass><scheme>://<hostname>:<port><path>` to get the gateway's public IP address. These variables are defined
+via the `-public-ip-service-*` variables. If a hostname is not provided, it defaults to the gateway's internal IP address, allowing each gateway to self-report its public
+IP address. This has been designed to integrate with Gluetun's control server.
+
+The response body can either be:
+* The IP address in plain text (e.g. `1.2.3.4`)
+* A JSON response with one of the following keys containing the IP address in plain text:
+  * `public_ip`
+  * `ip_address`
+  * `ip_addr`
+  * `ip`
+This should support most common "what's my public IP" providers.
+
+The list of public IP addresses for the active gateways is then used to update a single DNS record (with multiple values) via provider-specific logic (e.g. API calls).
+
+#### Supported DDNS Providers
+
+##### ChangeIP.com
+
+ChangeIP is a free Dynamic DNS service, and one of the few that supports multiple IP addresses per hostname. It also allows for configuring the TTL of records at no
+additional cost. This allows for much faster failover.
+
+> [!NOTE]
+> Multiple records are only supported on _subdomains_ of the registered DDNS domain. If you register `my-domain.changeip-root-domain.tld`, then you must specify a
+> subdomain (e.g. `subdomain.my-domain.changeip-root-domain.tld`) when using this tool.
+
+**Configuration:**
+```shell
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -ddns-provider changeip \
+  -ddns-username your-changeip-username \
+  -ddns-password your-changeip-password \
+  -ddns-hostname subdomain.your-hostname.changeip-domain.com
+```
+
+#### Gateway Public IP Service Requirements
+
+The tool needs to be configured to query another service to get each gateway's public IP address. If no hostname is provided, each active gateway's health check address
+will be queried, allowing gateways to self-report their public IP address. The tool will make a HTTP GET request to `<user>@<pass><scheme>://<hostname>:<port><path>`.
+The expected response format is one of:
+
+```text
+1.2.3.4
+```
+
+```json
+{"public_ip": "1.2.3.4"}
+```
+
+```json
+{"ip_address": "1.2.3.4"}
+```
+
+```json
+{"ip_addr": "1.2.3.4"}
+```
+
+```json
+{"ip": "1.2.3.4"}
 ```
 
 ## Use Cases

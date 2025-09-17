@@ -30,6 +30,9 @@ func TestConfig_Validate(t *testing.T) {
 				Scheme:      "http",
 				LogLevel:    "info",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 		},
 		{
@@ -44,6 +47,9 @@ func TestConfig_Validate(t *testing.T) {
 				Scheme:      "https",
 				LogLevel:    "debug",
 				MetricsPort: 8080,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 		},
 		{
@@ -58,6 +64,9 @@ func TestConfig_Validate(t *testing.T) {
 				Scheme:      "https",
 				LogLevel:    "warn",
 				MetricsPort: 3000,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 		},
 		{
@@ -71,6 +80,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "start-ip and end-ip are required",
@@ -86,6 +98,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "start-ip and end-ip are required",
@@ -101,6 +116,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "start-ip and end-ip are required",
@@ -116,6 +134,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "invalid start-ip: invalid-ip",
@@ -131,6 +152,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "invalid end-ip: not-an-ip",
@@ -146,6 +170,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "start-ip (192.168.1.10) must be less than or equal to end-ip (192.168.1.1)",
@@ -161,6 +188,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "check-period (3s) must be at least as long as timeout (5s)",
@@ -176,6 +206,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "scheme must be 'http' or 'https'",
@@ -191,6 +224,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "ftp",
 				MetricsPort: 9090,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "scheme must be 'http' or 'https'",
@@ -206,6 +242,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 0,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "metrics port must be between 1 and 65535",
@@ -221,6 +260,9 @@ func TestConfig_Validate(t *testing.T) {
 				URLPath:     "/",
 				Scheme:      "http",
 				MetricsPort: 65536,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 			errFunc: require.Error,
 			errMsg:  "metrics port must be between 1 and 65535",
@@ -237,6 +279,9 @@ func TestConfig_Validate(t *testing.T) {
 				Scheme:      "http",
 				LogLevel:    "info",
 				MetricsPort: 1,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 		},
 		{
@@ -251,6 +296,9 @@ func TestConfig_Validate(t *testing.T) {
 				Scheme:      "http",
 				LogLevel:    "error",
 				MetricsPort: 65535,
+				PublicIPService: PublicIPServiceConfig{
+					Port: 443,
+				},
 			},
 		},
 	}

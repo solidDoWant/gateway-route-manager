@@ -1,9 +1,17 @@
 package gateway
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 )
 
@@ -13,6 +21,7 @@ type Gateway struct {
 	URL                 string
 	IsActive            bool
 	ConsecutiveFailures int
+	PublicIP            string // Public IP address obtained from public IP service
 }
 
 // GenerateGateways creates a slice of Gateway structs for the IP range
@@ -71,4 +80,94 @@ func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string
 	}
 
 	return gateways, nil
+}
+
+// FetchPublicIP fetches the public IP address from the gateway's public IP service
+func (g *Gateway) FetchPublicIP(ctx context.Context, cfg config.PublicIPServiceConfig, timeout time.Duration) error {
+	if !g.IsActive {
+		return fmt.Errorf("gateway %s is not active", g.IP.String())
+	}
+
+	client := &http.Client{
+		Timeout: timeout,
+	}
+
+	// Determine the host to use - either the configured hostname or the gateway IP
+	if cfg.Hostname == "" {
+		cfg.Hostname = g.IP.String()
+	}
+	host := net.JoinHostPort(cfg.Hostname, fmt.Sprintf("%d", cfg.Port))
+
+	url := &url.URL{
+		Scheme: cfg.Scheme,
+		Host:   host,
+		Path:   cfg.Path,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for public IP: %w", err)
+	}
+
+	// Add HTTP basic auth if credentials are provided
+	if cfg.Username != "" && cfg.Password != "" {
+		req.SetBasicAuth(cfg.Username, cfg.Password)
+	}
+
+	// Prefer a JSON response
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch public IP from gateway %s: %w", g.IP.String(), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("public IP service server returned status %d when fetching public IP from gateway %s", resp.StatusCode, g.IP.String())
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body from gateway %s: %w", g.IP.String(), err)
+	}
+
+	var publicIP string
+
+	// First try to parse as JSON
+	var jsonResp map[string]any
+	if err := json.Unmarshal(body, &jsonResp); err == nil {
+		// Check for common IP address ipAddressKeys in order of preference
+		ipAddressKeys := []string{"public_ip", "ip_address", "ip_addr", "ip"}
+		for _, ipAddressKey := range ipAddressKeys {
+			if value, exists := jsonResp[ipAddressKey]; exists {
+				if ipStr, ok := value.(string); ok && ipStr != "" {
+					publicIP = ipStr
+					break
+				}
+			}
+		}
+
+		if publicIP == "" {
+			return fmt.Errorf("gateway returned a valid JSON response but no recognized IP address field: %s", string(body))
+		}
+	} else {
+		publicIP = string(body)
+	}
+
+	publicIP = strings.TrimSpace(publicIP)
+
+	// Validate that the public IP is a valid IP address
+	parsedIP := net.ParseIP(publicIP)
+	if parsedIP == nil {
+		return fmt.Errorf("received invalid public IP '%s' from gateway %s", publicIP, g.IP.String())
+	}
+
+	if parsedIP.To4() == nil {
+		return fmt.Errorf("received non-IPv4 public IP '%s' from gateway %s", publicIP, g.IP.String())
+	}
+
+	g.PublicIP = publicIP
+	return nil
 }
