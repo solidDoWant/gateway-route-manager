@@ -72,6 +72,7 @@ docker run --rm --name gateway-route-manager \
 | `-ddns-username`              | *(none)*     | DDNS username (required if DDNS provider is specified)                                         |
 | `-ddns-password`              | *(none)*     | DDNS password (required if DDNS provider is specified, falls back to `DDNS_PASSWORD`)          |
 | `-ddns-hostname`              | *(none)*     | DDNS hostname to update (required if DDNS provider is specified)                               |
+| `-ddns-require-ip-address`    | *(none)*     | IPv4 address that must be assigned to an interface for DDNS updates                            |
 | `-public-ip-service-hostname` | *(none)*     | Hostname for public IP service (if unset, queries each gateway individually)                   |
 | `-public-ip-service-port`     | `443`        | Port for gateway public IP service to fetch public IP addresses                                |
 | `-public-ip-service-scheme`   | `https`      | Scheme for public IP service (`http` or `https`)                                               |
@@ -126,7 +127,8 @@ gateway-route-manager \
   -ddns-password mypass \
   -ddns-hostname mygateways.example.com \
   -public-ip-service-port 8000 \
-  -public-ip-service-path /v1/ip
+  -public-ip-service-path /v1/ip \
+  -ddns-require-ip-address 192.168.1.100  # Optional, set if using multiple router instances with VRRP
 ```
 
 Or using environment variable for password:

@@ -59,10 +59,11 @@ type Config struct {
 	FirstRoutingTableID int
 	FirstRulePreference int
 	// DDNS configuration
-	DDNSProvider string
-	DDNSUsername string
-	DDNSPassword string
-	DDNSHostname string
+	DDNSProvider         string
+	DDNSUsername         string
+	DDNSPassword         string
+	DDNSHostname         string
+	DDNSRequireIPAddress string
 	// Public IP service configuration
 	PublicIPService PublicIPServiceConfig
 }
@@ -90,6 +91,7 @@ func ParseFlags(args []string) Config {
 	flag.StringVar(&config.DDNSUsername, "ddns-username", "", "DDNS username (required if DDNS provider is specified)")
 	flag.StringVar(&config.DDNSPassword, "ddns-password", "", "DDNS password (required if DDNS provider is specified, defaults to DDNS_PASSWORD)")
 	flag.StringVar(&config.DDNSHostname, "ddns-hostname", "", "DDNS hostname to update (required if DDNS provider is specified)")
+	flag.StringVar(&config.DDNSRequireIPAddress, "ddns-require-ip-address", "", "IPv4 address that must be assigned to an interface for DDNS updates to be performed")
 
 	// Public IP service configuration flags
 	flag.StringVar(&config.PublicIPService.Hostname, "public-ip-service-hostname", "", "Hostname for public IP service (if unset, queries each gateway)")
@@ -198,6 +200,19 @@ func (c Config) Validate() error {
 
 		if c.DDNSHostname == "" {
 			return fmt.Errorf("ddns-hostname is required when ddns-provider is specified")
+		}
+	}
+
+	// Validate DDNS require IP address if provided
+	if c.DDNSRequireIPAddress != "" {
+		ip := net.ParseIP(c.DDNSRequireIPAddress)
+		if ip == nil {
+			return fmt.Errorf("invalid ddns-require-ip-address: %s", c.DDNSRequireIPAddress)
+		}
+
+		// Ensure it's an IPv4 address
+		if ip.To4() == nil {
+			return fmt.Errorf("ddns-require-ip-address must be an IPv4 address: %s", c.DDNSRequireIPAddress)
 		}
 	}
 

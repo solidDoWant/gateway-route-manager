@@ -16,6 +16,7 @@ import (
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/ddns"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/gateway"
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/routes"
 )
@@ -249,6 +250,25 @@ func (gm *GatewayMonitor) updateRoutes(activeGateways []*gateway.Gateway) error 
 func (m *GatewayMonitor) updateDDNS(ctx context.Context, activeGateways []*gateway.Gateway) error {
 	if m.ddnsProvider == nil {
 		return nil
+	}
+
+	// Check if DDNS requires a specific IP address to be present on an interface
+	if m.config.DDNSRequireIPAddress != "" {
+		hasRequiredIP, err := iputil.HasInterfaceWithIP(m.config.DDNSRequireIPAddress)
+		if err != nil {
+			return fmt.Errorf("failed to check for required IP address %s: %w", m.config.DDNSRequireIPAddress, err)
+		}
+
+		if !hasRequiredIP {
+			// Skip DDNS update but record the event
+			m.metrics.DDNSUpdatesSkippedTotal.WithLabelValues(m.ddnsProvider.Name(), "required_ip_not_found").Inc()
+			slog.DebugContext(ctx, "Skipping DDNS update: required IP address not found on any interface",
+				"required_ip", m.config.DDNSRequireIPAddress)
+			return nil
+		}
+
+		slog.DebugContext(ctx, "Required IP address found on interface, proceeding with DDNS update",
+			"required_ip", m.config.DDNSRequireIPAddress)
 	}
 
 	publicIPs := make([]string, 0, len(activeGateways))

@@ -2,9 +2,12 @@
 package iputil
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sort"
+
+	"github.com/vishvananda/netlink"
 )
 
 // IsIPGreater returns true if ip1 is greater than ip2.
@@ -302,4 +305,40 @@ func tryMergeNetworks(net1, net2 *net.IPNet) *net.IPNet {
 		IP:   parentNet1,
 		Mask: parentMask,
 	}
+}
+
+// HasInterfaceWithIP checks if any network interface has the specified IP address assigned.
+// It uses the vishvananda/netlink library to query interface addresses.
+// Returns true if any interface has the IP address, false otherwise.
+// Returns an error if there's an issue querying the network interfaces.
+func HasInterfaceWithIP(targetIP string) (bool, error) {
+	// Parse the target IP to ensure it's valid
+	target := net.ParseIP(targetIP)
+	if target == nil {
+		return false, fmt.Errorf("invalid IP address: %s", targetIP)
+	}
+
+	// Get all network interfaces
+	links, err := netlink.LinkList()
+	if err != nil {
+		return false, fmt.Errorf("failed to list network interfaces: %w", err)
+	}
+
+	// Check each interface for addresses
+	addrListErrs := make([]error, 0, len(links))
+	for _, link := range links {
+		addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+		if err != nil {
+			addrListErrs = append(addrListErrs, fmt.Errorf("failed to list addresses for interface %s: %w", link.Attrs().Name, err))
+			continue
+		}
+
+		for _, addr := range addrs {
+			if addr.IP.Equal(target) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, errors.Join(addrListErrs...)
 }
