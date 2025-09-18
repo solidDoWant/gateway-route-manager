@@ -53,6 +53,13 @@ func TestNew(t *testing.T) {
 			metrics.ApplicationUptimeSeconds.Set(0)
 			metrics.ErrorsTotal.WithLabelValues("test")
 			metrics.ConsecutiveFailures.WithLabelValues("test")
+			metrics.PublicIPFetchTotal.WithLabelValues("test", "test")
+			metrics.PublicIPFetchDurationSeconds.WithLabelValues("test")
+			metrics.UniquePublicIPsGauge.Set(0)
+			metrics.PublicIPChangesTotal.Add(0)
+			metrics.DDNSUpdatesTotal.WithLabelValues("test", "test")
+			metrics.DDNSUpdateDurationSeconds.WithLabelValues("test")
+			metrics.DDNSUpdatesSkippedTotal.WithLabelValues("test", "test")
 		}, "all metrics should be accessible and registered")
 	})
 }
@@ -70,9 +77,13 @@ func TestMetrics_StructureValidation(t *testing.T) {
 		require.IsType(t, &prometheus.CounterVec{}, metrics.RouteUpdatesTotal)
 		require.IsType(t, &prometheus.CounterVec{}, metrics.HTTPRequestsTotal)
 		require.IsType(t, &prometheus.CounterVec{}, metrics.ErrorsTotal)
+		require.IsType(t, &prometheus.CounterVec{}, metrics.PublicIPFetchTotal)
+		require.IsType(t, &prometheus.CounterVec{}, metrics.DDNSUpdatesTotal)
+		require.IsType(t, &prometheus.CounterVec{}, metrics.DDNSUpdatesSkippedTotal)
 
 		// Test Counter metrics (check that they implement the Counter interface)
 		require.Implements(t, (*prometheus.Counter)(nil), metrics.CheckCyclesTotal)
+		require.Implements(t, (*prometheus.Counter)(nil), metrics.PublicIPChangesTotal)
 	})
 
 	t.Run("gauge metrics are properly configured", func(t *testing.T) {
@@ -81,6 +92,7 @@ func TestMetrics_StructureValidation(t *testing.T) {
 		require.Implements(t, (*prometheus.Gauge)(nil), metrics.TotalGatewayCount)
 		require.Implements(t, (*prometheus.Gauge)(nil), metrics.DefaultRouteGateways)
 		require.Implements(t, (*prometheus.Gauge)(nil), metrics.ApplicationUptimeSeconds)
+		require.Implements(t, (*prometheus.Gauge)(nil), metrics.UniquePublicIPsGauge)
 
 		// Test GaugeVec metrics
 		require.IsType(t, &prometheus.GaugeVec{}, metrics.ConsecutiveFailures)
@@ -90,6 +102,8 @@ func TestMetrics_StructureValidation(t *testing.T) {
 		// Test HistogramVec metrics
 		require.IsType(t, &prometheus.HistogramVec{}, metrics.HealthCheckDurationSeconds)
 		require.IsType(t, &prometheus.HistogramVec{}, metrics.HTTPRequestDurationSeconds)
+		require.IsType(t, &prometheus.HistogramVec{}, metrics.PublicIPFetchDurationSeconds)
+		require.IsType(t, &prometheus.HistogramVec{}, metrics.DDNSUpdateDurationSeconds)
 
 		// Test Histogram metrics (check that they implement the Histogram interface)
 		require.Implements(t, (*prometheus.Histogram)(nil), metrics.RouteUpdateDurationSeconds)
@@ -111,6 +125,10 @@ func TestMetrics_FunctionalValidation(t *testing.T) {
 			metrics.HTTPRequestsTotal.WithLabelValues("192.168.1.1", "200", "GET").Inc()
 			metrics.ErrorsTotal.WithLabelValues("network").Inc()
 			metrics.CheckCyclesTotal.Inc()
+			metrics.PublicIPFetchTotal.WithLabelValues("192.168.1.1", "success").Inc()
+			metrics.PublicIPChangesTotal.Inc()
+			metrics.DDNSUpdatesTotal.WithLabelValues("changeip", "success").Inc()
+			metrics.DDNSUpdatesSkippedTotal.WithLabelValues("changeip", "no_change").Inc()
 		})
 	})
 
@@ -122,6 +140,7 @@ func TestMetrics_FunctionalValidation(t *testing.T) {
 			metrics.DefaultRouteGateways.Set(3)
 			metrics.ApplicationUptimeSeconds.Set(3600)
 			metrics.ConsecutiveFailures.WithLabelValues("192.168.1.1").Set(2)
+			metrics.UniquePublicIPsGauge.Set(2)
 		})
 	})
 
@@ -132,6 +151,8 @@ func TestMetrics_FunctionalValidation(t *testing.T) {
 			metrics.HTTPRequestDurationSeconds.WithLabelValues("192.168.1.1").Observe(0.05)
 			metrics.RouteUpdateDurationSeconds.Observe(0.2)
 			metrics.CheckCycleDurationSeconds.Observe(1.5)
+			metrics.PublicIPFetchDurationSeconds.WithLabelValues("192.168.1.1").Observe(0.3)
+			metrics.DDNSUpdateDurationSeconds.WithLabelValues("changeip").Observe(1.0)
 		})
 	})
 }

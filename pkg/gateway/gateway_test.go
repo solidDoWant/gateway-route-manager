@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -189,6 +191,11 @@ func TestGateway_FetchPublicIP(t *testing.T) {
 				// Set the gateway IP to the test server host for testing
 				tt.gateway.IP = net.ParseIP(host)
 			}
+			// Create metrics for testing
+			testMetrics, err := metrics.New(prometheus.NewRegistry())
+			require.NoError(t, err)
+			tt.gateway.metrics = testMetrics
+
 			cfg := config.PublicIPServiceConfig{
 				Port:     port,
 				Hostname: "",
@@ -197,7 +204,7 @@ func TestGateway_FetchPublicIP(t *testing.T) {
 				Username: "",
 				Password: "",
 			}
-			err := tt.gateway.FetchPublicIP(ctx, cfg, time.Second)
+			err = tt.gateway.FetchPublicIP(ctx, cfg, time.Second)
 
 			tt.errFunc(t, err)
 			assert.Equal(t, tt.expectedIP, tt.gateway.PublicIP)
@@ -216,6 +223,11 @@ func TestGateway_FetchPublicIP_Timeout(t *testing.T) {
 		IP:       parseIP("192.168.1.1"),
 		IsActive: true,
 	}
+
+	// Create metrics for testing
+	testMetrics, err := metrics.New(prometheus.NewRegistry())
+	require.NoError(t, err)
+	gateway.metrics = testMetrics
 
 	ctx := context.Background()
 	timeout := 100 * time.Millisecond
@@ -244,6 +256,11 @@ func TestGateway_FetchPublicIP_WithBasicAuth(t *testing.T) {
 		IP:       parseIP("127.0.0.1"),
 		IsActive: true,
 	}
+
+	// Create metrics for testing
+	testMetrics, err := metrics.New(prometheus.NewRegistry())
+	require.NoError(t, err)
+	gateway.metrics = testMetrics
 
 	ctx := context.Background()
 
@@ -287,6 +304,11 @@ func TestGateway_FetchPublicIP_WithCustomHostname(t *testing.T) {
 		IsActive: true,
 	}
 
+	// Create metrics for testing
+	testMetrics, err := metrics.New(prometheus.NewRegistry())
+	require.NoError(t, err)
+	gateway.metrics = testMetrics
+
 	ctx := context.Background()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +342,11 @@ func TestGateway_FetchPublicIP_WithCustomPath(t *testing.T) {
 		IP:       parseIP("127.0.0.1"),
 		IsActive: true,
 	}
+
+	// Create metrics for testing
+	testMetrics, err := metrics.New(prometheus.NewRegistry())
+	require.NoError(t, err)
+	gateway.metrics = testMetrics
 
 	ctx := context.Background()
 

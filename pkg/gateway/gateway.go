@@ -13,6 +13,7 @@ import (
 
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 )
 
 // Gateway represents a single gateway with its health status
@@ -22,10 +23,11 @@ type Gateway struct {
 	IsActive            bool
 	ConsecutiveFailures int
 	PublicIP            string // Public IP address obtained from public IP service
+	metrics             *metrics.Metrics
 }
 
 // GenerateGateways creates a slice of Gateway structs for the IP range
-func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string) ([]Gateway, error) {
+func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string, m *metrics.Metrics) ([]Gateway, error) {
 	startIP := net.ParseIP(startIPStr)
 	if startIP == nil {
 		return nil, fmt.Errorf("invalid start IP: %s", startIPStr)
@@ -59,8 +61,9 @@ func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string
 		url := fmt.Sprintf("%s://%s:%d%s", scheme, ipCopy.String(), port, path)
 
 		gateways = append(gateways, Gateway{
-			IP:  ipCopy,
-			URL: url,
+			IP:      ipCopy,
+			URL:     url,
+			metrics: m,
 		})
 
 		// Check if we've reached the end IP
@@ -84,7 +87,10 @@ func GenerateGateways(startIPStr, endIPStr string, port int, path, scheme string
 
 // FetchPublicIP fetches the public IP address from the gateway's public IP service
 func (g *Gateway) FetchPublicIP(ctx context.Context, cfg config.PublicIPServiceConfig, timeout time.Duration) error {
+	gatewayIP := g.IP.String()
+
 	if !g.IsActive {
+		g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
 		return fmt.Errorf("gateway %s is not active", g.IP.String())
 	}
 
@@ -117,20 +123,28 @@ func (g *Gateway) FetchPublicIP(ctx context.Context, cfg config.PublicIPServiceC
 	// Prefer a JSON response
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch public IP from gateway %s: %w", g.IP.String(), err)
+	start := time.Now()
+	resp, reqErr := client.Do(req)
+	g.metrics.PublicIPFetchDurationSeconds.WithLabelValues(gatewayIP).Observe(time.Since(start).Seconds())
+
+	var body []byte
+	if resp != nil {
+		// Read the response body
+		if body, err = io.ReadAll(resp.Body); err != nil {
+			g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
+			return fmt.Errorf("failed to read response body from gateway %s: %w", g.IP.String(), err)
+		}
+	}
+
+	if reqErr != nil {
+		g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
+		return fmt.Errorf("failed to fetch public IP from gateway %s: %w, %s", g.IP.String(), reqErr, string(body))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
 		return fmt.Errorf("public IP service server returned status %d when fetching public IP from gateway %s", resp.StatusCode, g.IP.String())
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body from gateway %s: %w", g.IP.String(), err)
 	}
 
 	var publicIP string
@@ -150,6 +164,7 @@ func (g *Gateway) FetchPublicIP(ctx context.Context, cfg config.PublicIPServiceC
 		}
 
 		if publicIP == "" {
+			g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
 			return fmt.Errorf("gateway returned a valid JSON response but no recognized IP address field: %s", string(body))
 		}
 	} else {
@@ -161,12 +176,17 @@ func (g *Gateway) FetchPublicIP(ctx context.Context, cfg config.PublicIPServiceC
 	// Validate that the public IP is a valid IP address
 	parsedIP := net.ParseIP(publicIP)
 	if parsedIP == nil {
+		g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
 		return fmt.Errorf("received invalid public IP '%s' from gateway %s", publicIP, g.IP.String())
 	}
 
 	if parsedIP.To4() == nil {
+		g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "failure").Inc()
 		return fmt.Errorf("received non-IPv4 public IP '%s' from gateway %s", publicIP, g.IP.String())
 	}
+
+	// Success case - record successful metric
+	g.metrics.PublicIPFetchTotal.WithLabelValues(gatewayIP, "success").Inc()
 
 	g.PublicIP = publicIP
 	return nil

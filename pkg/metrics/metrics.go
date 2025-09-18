@@ -37,6 +37,17 @@ type Metrics struct {
 	// Error Metrics
 	ErrorsTotal         *prometheus.CounterVec
 	ConsecutiveFailures *prometheus.GaugeVec
+
+	// Public IP Service Metrics
+	PublicIPFetchTotal           *prometheus.CounterVec
+	PublicIPFetchDurationSeconds *prometheus.HistogramVec
+	UniquePublicIPsGauge         prometheus.Gauge
+	PublicIPChangesTotal         prometheus.Counter
+
+	// DDNS Metrics
+	DDNSUpdatesTotal          *prometheus.CounterVec
+	DDNSUpdateDurationSeconds *prometheus.HistogramVec
+	DDNSUpdatesSkippedTotal   *prometheus.CounterVec
 }
 
 // New creates and registers all Prometheus metrics
@@ -146,6 +157,59 @@ func New(registry prometheus.Registerer) (*Metrics, error) {
 			},
 			[]string{"gateway_ip"},
 		),
+
+		// Public IP Service Metrics
+		PublicIPFetchTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "public_ip_fetch_total",
+				Help: "Total number of public IP fetch attempts",
+			},
+			[]string{"gateway_ip", "status"},
+		),
+		PublicIPFetchDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "public_ip_fetch_duration_seconds",
+				Help:    "Time taken to fetch public IP from gateways",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"gateway_ip"},
+		),
+		UniquePublicIPsGauge: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "unique_public_ips_count",
+				Help: "Current number of unique public IPs discovered",
+			},
+		),
+		PublicIPChangesTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "public_ip_changes_total",
+				Help: "Total number of times public IP set has changed",
+			},
+		),
+
+		// DDNS Metrics
+		DDNSUpdatesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ddns_updates_total",
+				Help: "Total number of DDNS update attempts",
+			},
+			[]string{"provider", "status"},
+		),
+		DDNSUpdateDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "ddns_update_duration_seconds",
+				Help:    "Time taken to update DDNS records",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"provider"},
+		),
+		DDNSUpdatesSkippedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ddns_updates_skipped_total",
+				Help: "Total number of DDNS updates skipped",
+			},
+			[]string{"provider", "reason"},
+		),
 	}
 
 	// Register all metrics
@@ -164,6 +228,13 @@ func New(registry prometheus.Registerer) (*Metrics, error) {
 		metrics.ApplicationUptimeSeconds,
 		metrics.ErrorsTotal,
 		metrics.ConsecutiveFailures,
+		metrics.PublicIPFetchTotal,
+		metrics.PublicIPFetchDurationSeconds,
+		metrics.UniquePublicIPsGauge,
+		metrics.PublicIPChangesTotal,
+		metrics.DDNSUpdatesTotal,
+		metrics.DDNSUpdateDurationSeconds,
+		metrics.DDNSUpdatesSkippedTotal,
 	}
 
 	for _, collector := range collectors {

@@ -33,14 +33,14 @@ type GatewayMonitor struct {
 
 // New creates a new GatewayMonitor instance
 func New(cfg config.Config) (*GatewayMonitor, error) {
-	gateways, err := gateway.GenerateGateways(cfg.StartIP, cfg.EndIP, cfg.Port, cfg.URLPath, cfg.Scheme)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate gateways: %w", err)
-	}
-
 	metrics, err := metrics.New(prometheus.DefaultRegisterer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics: %w", err)
+	}
+
+	gateways, err := gateway.GenerateGateways(cfg.StartIP, cfg.EndIP, cfg.Port, cfg.URLPath, cfg.Scheme, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate gateways: %w", err)
 	}
 
 	// Set total gateway count
@@ -260,13 +260,30 @@ func (m *GatewayMonitor) updateDDNS(ctx context.Context, activeGateways []*gatew
 		publicIPs = append(publicIPs, gw.PublicIP)
 	}
 	slices.Sort(publicIPs)
+	m.metrics.UniquePublicIPsGauge.Set(float64(len(publicIPs)))
 
 	if !slices.Equal(publicIPs, m.lastActiveIPs) {
+		// Record that public IPs have changed
+		m.metrics.PublicIPChangesTotal.Inc()
+
+		providerName := m.ddnsProvider.Name()
 		slog.InfoContext(ctx, "Public IPs changed, updating DDNS", "ips", publicIPs)
-		if err := m.ddnsProvider.UpdateRecords(ctx, publicIPs); err != nil {
+
+		start := time.Now()
+		err := m.ddnsProvider.UpdateRecords(ctx, publicIPs)
+		m.metrics.DDNSUpdateDurationSeconds.WithLabelValues(providerName).Observe(time.Since(start).Seconds())
+
+		if err != nil {
+			// Record failed DDNS update
+			m.metrics.DDNSUpdatesTotal.WithLabelValues(providerName, "failure").Inc()
 			return fmt.Errorf("failed to update DNS records: %w", err)
 		}
+
+		// Record successful DDNS update
+		m.metrics.DDNSUpdatesTotal.WithLabelValues(providerName, "success").Inc()
 	} else {
+		// Record skipped DDNS update
+		m.metrics.DDNSUpdatesSkippedTotal.WithLabelValues(m.ddnsProvider.Name(), "no_change").Inc()
 		slog.DebugContext(ctx, "Public IPs unchanged, skipping DDNS update", "ips", publicIPs)
 	}
 
