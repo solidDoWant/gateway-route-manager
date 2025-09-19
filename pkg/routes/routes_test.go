@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -446,7 +447,7 @@ func TestMockNetlinkHandle_InterfaceCompliance(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 
 	// This should compile if mockNetlinkHandle properly implements netlinkHandle
-	var _ netlinkHandle = mockHandle
+	var _ iputil.NetlinkHandle = mockHandle
 
 	assert.NotNil(t, mockHandle)
 }

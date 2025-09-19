@@ -1,4 +1,4 @@
-package routes
+package iputil
 
 import (
 	"github.com/vishvananda/netlink"
@@ -7,7 +7,7 @@ import (
 // netlinkHandle is an interface that abstracts the netlink.Handle methods used in this package.
 // This allows for easier testing and mocking of netlink interactions.
 // These should be a 1:1 mapping of the methods used from netlink.Handle for normal operations.
-type netlinkHandle interface {
+type NetlinkHandle interface {
 	// Routes
 	RouteListFilteredIter(family int, filter *netlink.Route, filterMask uint64, f func(netlink.Route) (cont bool)) error
 	RouteReplace(route *netlink.Route) error
@@ -22,4 +22,13 @@ type netlinkHandle interface {
 	Close()
 }
 
-var _ netlinkHandle = (*netlink.Handle)(nil)
+var _ NetlinkHandle = (*netlink.Handle)(nil)
+
+func NewRealNetlinkHandle() NetlinkHandle {
+	// For some inexplicable reason, using netlink.NewHandle() causes the program to hang indefinitely when
+	// trying to delete specific routes. This seems to only happen on default routes attached to a table.
+	// Using an empty handle seems to work fine, and is what the netlink package uses internally when no
+	// specific handle is provided.
+	// TODO file a bug report with the netlink package about this issue
+	return &netlink.Handle{}
+}

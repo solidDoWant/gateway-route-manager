@@ -318,6 +318,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSPassword:         "pass",
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "192.168.1.100",
+				DDNSTimeout:          time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},
@@ -340,6 +341,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSPassword:         "pass",
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "not.an.ip",
+				DDNSTimeout:          time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},
@@ -364,6 +366,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSPassword:         "pass",
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "2001:db8::1",
+				DDNSTimeout:          time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},

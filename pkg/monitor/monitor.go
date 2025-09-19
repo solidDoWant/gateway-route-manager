@@ -7,38 +7,29 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/config"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/ddns"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/gateway"
-	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/iputil"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/metrics"
 	"github.com/solidDoWant/infra-mk3/tooling/gateway-route-manager/pkg/routes"
 )
 
 // GatewayMonitor manages the monitoring of gateways and route updates
 type GatewayMonitor struct {
-	config        config.Config
-	gateways      []gateway.Gateway
-	client        *http.Client
-	metrics       *metrics.Metrics
-	routeManager  routes.Manager
-	ddnsProvider  ddns.Provider
-	lastActiveIPs []string // Track the last set of active public IPs for DDNS updates
+	config       config.Config
+	gateways     []gateway.Gateway
+	client       *http.Client
+	metrics      *metrics.Metrics
+	routeManager routes.Manager
+	ddnsUpdater  *ddns.Updater
 }
 
 // New creates a new GatewayMonitor instance
-func New(cfg config.Config) (*GatewayMonitor, error) {
-	metrics, err := metrics.New(prometheus.DefaultRegisterer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create metrics: %w", err)
-	}
-
+func New(cfg config.Config, metrics *metrics.Metrics, ddnsUpdater *ddns.Updater) (*GatewayMonitor, error) {
 	gateways, err := gateway.GenerateGateways(cfg.StartIP, cfg.EndIP, cfg.Port, cfg.URLPath, cfg.Scheme, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate gateways: %w", err)
@@ -69,7 +60,7 @@ func New(cfg config.Config) (*GatewayMonitor, error) {
 		},
 		metrics:      metrics,
 		routeManager: routeManager,
-		ddnsProvider: ddnsProvider,
+		ddnsUpdater:  ddnsUpdater,
 	}, nil
 }
 
@@ -110,10 +101,10 @@ func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 	gm.checkGateways(ctx)
 
 	// Collect active gateways
-	activeGateways := make([]*gateway.Gateway, 0, len(gm.gateways))
+	activeGateways := make([]gateway.Gateway, 0, len(gm.gateways))
 	for _, gateway := range gm.gateways {
 		if gateway.IsActive {
-			activeGateways = append(activeGateways, &gateway)
+			activeGateways = append(activeGateways, gateway)
 		}
 	}
 
@@ -122,14 +113,7 @@ func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 		return fmt.Errorf("failed to update routes: %w", err)
 	}
 
-	// Perform DDNS update if enabled
-	if gm.ddnsProvider != nil {
-		if err := gm.updateDDNS(ctx, activeGateways); err != nil {
-			gm.metrics.ErrorsTotal.WithLabelValues("ddns_error").Inc()
-			// Log the error but don't fail the cycle
-			slog.ErrorContext(ctx, "DDNS update failed", "error", err)
-		}
-	}
+	gm.ddnsUpdater.ScheduleUpdate(activeGateways)
 
 	gm.metrics.CheckCycleDurationSeconds.Observe(time.Since(start).Seconds())
 	gm.metrics.CheckCyclesTotal.Inc()
@@ -225,7 +209,7 @@ func (gm *GatewayMonitor) checkGateway(ctx context.Context, gw *gateway.Gateway)
 	return false
 }
 
-func (gm *GatewayMonitor) updateRoutes(activeGateways []*gateway.Gateway) error {
+func (gm *GatewayMonitor) updateRoutes(activeGateways []gateway.Gateway) error {
 	start := time.Now()
 	defer func() {
 		gm.metrics.RouteUpdateDurationSeconds.Observe(time.Since(start).Seconds())
@@ -243,70 +227,5 @@ func (gm *GatewayMonitor) updateRoutes(activeGateways []*gateway.Gateway) error 
 
 	gm.metrics.RouteUpdatesTotal.WithLabelValues("update", "success").Inc()
 	gm.metrics.DefaultRouteGateways.Set(float64(len(activeGateways)))
-	return nil
-}
-
-// updateDDNS updates DNS records for active gateways with their public IP addresses
-func (m *GatewayMonitor) updateDDNS(ctx context.Context, activeGateways []*gateway.Gateway) error {
-	if m.ddnsProvider == nil {
-		return nil
-	}
-
-	// Check if DDNS requires a specific IP address to be present on an interface
-	if m.config.DDNSRequireIPAddress != "" {
-		hasRequiredIP, err := iputil.HasInterfaceWithIP(m.config.DDNSRequireIPAddress)
-		if err != nil {
-			return fmt.Errorf("failed to check for required IP address %s: %w", m.config.DDNSRequireIPAddress, err)
-		}
-
-		if !hasRequiredIP {
-			// Skip DDNS update but record the event
-			m.metrics.DDNSUpdatesSkippedTotal.WithLabelValues(m.ddnsProvider.Name(), "required_ip_not_found").Inc()
-			slog.DebugContext(ctx, "Skipping DDNS update: required IP address not found on any interface",
-				"required_ip", m.config.DDNSRequireIPAddress)
-			return nil
-		}
-
-		slog.DebugContext(ctx, "Required IP address found on interface, proceeding with DDNS update",
-			"required_ip", m.config.DDNSRequireIPAddress)
-	}
-
-	publicIPs := make([]string, 0, len(activeGateways))
-	for _, gw := range activeGateways {
-		if err := gw.FetchPublicIP(ctx, m.config.PublicIPService, m.config.Timeout); err != nil {
-			slog.WarnContext(ctx, "Failed to fetch public IP from gateway", "gateway", gw.IP.String(), "error", err)
-			continue
-		}
-		publicIPs = append(publicIPs, gw.PublicIP)
-	}
-	slices.Sort(publicIPs)
-	m.metrics.UniquePublicIPsGauge.Set(float64(len(publicIPs)))
-
-	if !slices.Equal(publicIPs, m.lastActiveIPs) {
-		// Record that public IPs have changed
-		m.metrics.PublicIPChangesTotal.Inc()
-
-		providerName := m.ddnsProvider.Name()
-		slog.InfoContext(ctx, "Public IPs changed, updating DDNS", "ips", publicIPs)
-
-		start := time.Now()
-		err := m.ddnsProvider.UpdateRecords(ctx, publicIPs)
-		m.metrics.DDNSUpdateDurationSeconds.WithLabelValues(providerName).Observe(time.Since(start).Seconds())
-
-		if err != nil {
-			// Record failed DDNS update
-			m.metrics.DDNSUpdatesTotal.WithLabelValues(providerName, "failure").Inc()
-			return fmt.Errorf("failed to update DNS records: %w", err)
-		}
-
-		// Record successful DDNS update
-		m.metrics.DDNSUpdatesTotal.WithLabelValues(providerName, "success").Inc()
-	} else {
-		// Record skipped DDNS update
-		m.metrics.DDNSUpdatesSkippedTotal.WithLabelValues(m.ddnsProvider.Name(), "no_change").Inc()
-		slog.DebugContext(ctx, "Public IPs unchanged, skipping DDNS update", "ips", publicIPs)
-	}
-
-	m.lastActiveIPs = publicIPs
 	return nil
 }

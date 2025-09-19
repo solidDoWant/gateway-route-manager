@@ -64,6 +64,7 @@ type Config struct {
 	DDNSPassword         string
 	DDNSHostname         string
 	DDNSRequireIPAddress string
+	DDNSTimeout          time.Duration
 	// Public IP service configuration
 	PublicIPService PublicIPServiceConfig
 }
@@ -92,6 +93,7 @@ func ParseFlags(args []string) Config {
 	flag.StringVar(&config.DDNSPassword, "ddns-password", "", "DDNS password (required if DDNS provider is specified, defaults to DDNS_PASSWORD)")
 	flag.StringVar(&config.DDNSHostname, "ddns-hostname", "", "DDNS hostname to update (required if DDNS provider is specified)")
 	flag.StringVar(&config.DDNSRequireIPAddress, "ddns-require-ip-address", "", "IPv4 address that must be assigned to an interface for DDNS updates to be performed")
+	flag.DurationVar(&config.DDNSTimeout, "ddns-timeout", time.Minute, "Timeout for DDNS updates")
 
 	// Public IP service configuration flags
 	flag.StringVar(&config.PublicIPService.Hostname, "public-ip-service-hostname", "", "Hostname for public IP service (if unset, queries each gateway)")
@@ -200,6 +202,10 @@ func (c Config) Validate() error {
 
 		if c.DDNSHostname == "" {
 			return fmt.Errorf("ddns-hostname is required when ddns-provider is specified")
+		}
+
+		if c.DDNSTimeout <= 0 {
+			return fmt.Errorf("ddns-timeout must be greater than zero")
 		}
 	}
 
