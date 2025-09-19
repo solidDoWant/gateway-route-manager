@@ -32,7 +32,7 @@ var reservedCIDRs = []string{
 	"224.0.0.0/3",     // Multicast + MCAST-TEST-NET + Reserved for future use + Broadcast
 }
 
-var ddnsProviders = []string{"changeip"}
+var ddnsProviders = []string{"changeip", "dynudns"}
 
 // PublicIPServiceConfig holds configuration for the public IP service
 type PublicIPServiceConfig struct {
@@ -89,8 +89,8 @@ func ParseFlags(args []string) Config {
 
 	// DDNS configuration flags
 	flag.StringVar(&config.DDNSProvider, "ddns-provider", "", fmt.Sprintf("DDNS provider (currently supports: %s)", strings.Join(ddnsProviders, ", ")))
-	flag.StringVar(&config.DDNSUsername, "ddns-username", "", "DDNS username (required if DDNS provider is specified)")
-	flag.StringVar(&config.DDNSPassword, "ddns-password", "", "DDNS password (required if DDNS provider is specified, defaults to DDNS_PASSWORD)")
+	flag.StringVar(&config.DDNSUsername, "ddns-username", "", "DDNS username (required for some providers)")
+	flag.StringVar(&config.DDNSPassword, "ddns-password", "", "DDNS password or API key (required if DDNS provider is specified, defaults to DDNS_PASSWORD)")
 	flag.StringVar(&config.DDNSHostname, "ddns-hostname", "", "DDNS hostname to update (required if DDNS provider is specified)")
 	flag.StringVar(&config.DDNSRequireIPAddress, "ddns-require-ip-address", "", "IPv4 address that must be assigned to an interface for DDNS updates to be performed")
 	flag.DurationVar(&config.DDNSTimeout, "ddns-timeout", time.Minute, "Timeout for DDNS updates")
@@ -192,8 +192,12 @@ func (c Config) Validate() error {
 			return fmt.Errorf("ddns-provider must be one of: %s", strings.Join(ddnsProviders, ", "))
 		}
 
-		if c.DDNSUsername == "" {
-			return fmt.Errorf("ddns-username is required when ddns-provider is specified")
+		// DynuDNS uses API key authentication via password only
+		if strings.ToLower(c.DDNSProvider) != "dynudns" {
+			// Other providers require both username and password
+			if c.DDNSUsername == "" {
+				return fmt.Errorf("ddns-username is required")
+			}
 		}
 
 		if c.DDNSPassword == "" {

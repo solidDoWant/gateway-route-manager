@@ -21,6 +21,12 @@ func NewProvider(cfg config.Config) (Provider, error) {
 			cfg.DDNSHostname,
 			cfg.Timeout,
 		), nil
+	case "dynudns":
+		return NewDynuDNSProvider(
+			cfg.DDNSPassword, // API key
+			cfg.DDNSHostname,
+			cfg.Timeout,
+		)
 	default:
 		return nil, fmt.Errorf("unsupported DDNS provider: %s", cfg.DDNSProvider)
 	}
