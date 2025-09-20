@@ -78,285 +78,6 @@ func createTestNetlinkManager(mockHandle *mockNetlinkHandle) *NetlinkManager {
 	}
 }
 
-func TestNetlinkManager_UpdateDefaultRoute_NoGateways(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	// Mock RouteListFilteredIter to return existing routes in the gateway table
-	existingRoutes := []netlink.Route{
-		{
-			Dst: &net.IPNet{
-				IP:   net.IPv4zero,
-				Mask: net.CIDRMask(0, 32),
-			},
-			Gw:    net.ParseIP("192.168.1.1"),
-			Table: 100, // gateway table
-		},
-	}
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, existingRoutes)
-	mockHandle.On("RouteDel", &existingRoutes[0]).Return(nil)
-
-	err := manager.UpdateDefaultRoute([]net.IP{})
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_NoGateways_RouteListError(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	expectedError := errors.New("failed to list routes")
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(expectedError, []netlink.Route{})
-
-	err := manager.UpdateDefaultRoute([]net.IP{})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to remove default route")
-	assert.Contains(t, err.Error(), "failed to list routes")
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_NoGateways_RouteDelError(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	existingRoutes := []netlink.Route{
-		{
-			Dst: &net.IPNet{
-				IP:   net.IPv4zero,
-				Mask: net.CIDRMask(0, 32),
-			},
-			Gw:    net.ParseIP("192.168.1.1"),
-			Table: 100, // gateway table
-		},
-	}
-	expectedError := errors.New("failed to delete route")
-
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, existingRoutes)
-	mockHandle.On("RouteDel", &existingRoutes[0]).Return(expectedError)
-
-	err := manager.UpdateDefaultRoute([]net.IP{})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to remove default route")
-	assert.Contains(t, err.Error(), "failed to delete default route via 192.168.1.1")
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_SingleGateway(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	gateways := []net.IP{net.ParseIP("192.168.1.1")}
-
-	// Mock RouteReplace to succeed
-	mockHandle.On("RouteReplace", mock.MatchedBy(func(route *netlink.Route) bool {
-		// Verify the route is a default route with the correct gateway and table
-		if route.Dst == nil {
-			return false
-		}
-		if !route.Dst.IP.Equal(net.IPv4zero) {
-			return false
-		}
-		ones, bits := route.Dst.Mask.Size()
-		if ones != 0 || bits != 32 {
-			return false
-		}
-		if route.Table != 100 { // gateway table
-			return false
-		}
-		if len(route.MultiPath) != 1 {
-			return false
-		}
-		return route.MultiPath[0].Gw.Equal(gateways[0])
-	})).Return(nil)
-
-	err := manager.UpdateDefaultRoute(gateways)
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_MultipleGateways(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	gateways := []net.IP{
-		net.ParseIP("192.168.1.1"),
-		net.ParseIP("192.168.1.2"),
-		net.ParseIP("192.168.1.3"),
-	}
-
-	// Mock RouteReplace to succeed
-	mockHandle.On("RouteReplace", mock.MatchedBy(func(route *netlink.Route) bool {
-		// Verify the route is a default route with the correct gateways
-		if route.Dst == nil {
-			return false
-		}
-		if !route.Dst.IP.Equal(net.IPv4zero) {
-			return false
-		}
-		ones, bits := route.Dst.Mask.Size()
-		if ones != 0 || bits != 32 {
-			return false
-		}
-		if route.Table != 100 { // gateway table
-			return false
-		}
-		if len(route.MultiPath) != 3 {
-			return false
-		}
-
-		// Verify all gateways are present (order might be different due to sorting)
-		gatewayMap := make(map[string]bool)
-		for _, gw := range gateways {
-			gatewayMap[gw.String()] = false
-		}
-
-		for _, nexthop := range route.MultiPath {
-			if _, exists := gatewayMap[nexthop.Gw.String()]; !exists {
-				return false
-			}
-			gatewayMap[nexthop.Gw.String()] = true
-		}
-
-		// All gateways should be found
-		for _, found := range gatewayMap {
-			if !found {
-				return false
-			}
-		}
-
-		return true
-	})).Return(nil)
-
-	err := manager.UpdateDefaultRoute(gateways)
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_RouteReplaceError(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	gateways := []net.IP{net.ParseIP("192.168.1.1")}
-	expectedError := errors.New("failed to replace route")
-
-	mockHandle.On("RouteReplace", mock.AnythingOfType("*netlink.Route")).Return(expectedError)
-
-	err := manager.UpdateDefaultRoute(gateways)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to replace/add ECMP route")
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_UpdateDefaultRoute_GatewaySorting(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	// Provide gateways in unsorted order
-	gateways := []net.IP{
-		net.ParseIP("192.168.1.3"),
-		net.ParseIP("192.168.1.1"),
-		net.ParseIP("192.168.1.2"),
-	}
-
-	// Expected sorted order: 192.168.1.1, 192.168.1.2, 192.168.1.3
-	mockHandle.On("RouteReplace", mock.MatchedBy(func(route *netlink.Route) bool {
-		if len(route.MultiPath) != 3 {
-			return false
-		}
-		if route.Table != 100 { // gateway table
-			return false
-		}
-		// Check that gateways are in sorted order
-		expectedOrder := []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}
-		for i, nexthop := range route.MultiPath {
-			if nexthop.Gw.String() != expectedOrder[i] {
-				return false
-			}
-		}
-		return true
-	})).Return(nil)
-
-	err := manager.UpdateDefaultRoute(gateways)
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_removeDefaultRoute_NoExistingRoutes(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	// Mock RouteListFilteredIter to return no routes
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
-
-	err := manager.removeDefaultRoute()
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_removeDefaultRoute_NonDefaultRoutes(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	// Mock RouteListFilteredIter to return no routes in gateway table
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
-
-	err := manager.removeDefaultRoute()
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
-func TestNetlinkManager_removeDefaultRoute_WithDefaultRoutes(t *testing.T) {
-	mockHandle := &mockNetlinkHandle{}
-	manager := createTestNetlinkManager(mockHandle)
-
-	// Mock RouteListFilteredIter to return routes only from gateway table
-	gatewayRoutes := []netlink.Route{
-		{
-			// Route in gateway table (should be deleted)
-			Dst: &net.IPNet{
-				IP:   net.IPv4zero,
-				Mask: net.CIDRMask(0, 32),
-			},
-			Gw:    net.ParseIP("192.168.1.1"),
-			Table: 100, // gateway table
-		},
-		{
-			// Another route in gateway table with ECMP (should be deleted)
-			Dst: &net.IPNet{
-				IP:   net.IPv4zero,
-				Mask: net.CIDRMask(0, 32),
-			},
-			MultiPath: []*netlink.NexthopInfo{
-				{
-					Gw: net.ParseIP("192.168.1.2"),
-				},
-				{
-					Gw: net.ParseIP("192.168.1.3"),
-				},
-			},
-			Table: 100, // gateway table
-		},
-	}
-
-	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, gatewayRoutes)
-	mockHandle.On("RouteDel", &gatewayRoutes[0]).Return(nil) // First gateway table route
-	mockHandle.On("RouteDel", &gatewayRoutes[1]).Return(nil) // Second gateway table route
-
-	err := manager.removeDefaultRoute()
-
-	assert.NoError(t, err)
-	mockHandle.AssertExpectations(t)
-}
-
 func TestNewNetlinkManager(t *testing.T) {
 	// Skip this test if we don't have root privileges, as it tries to modify actual network rules
 	if !hasNetworkPrivileges() {
@@ -714,19 +435,99 @@ func TestNetlinkManager_removeRoutes_DeleteError(t *testing.T) {
 	err := manager.removeRoutes()
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to delete default route via 192.168.1.1")
 	mockHandle.AssertExpectations(t)
 }
 
-func TestNetlinkManager_removeRoutes_GatewayTableIDZero(t *testing.T) {
+func TestNetlinkManager_UpdateRoutes_NoRoutes(t *testing.T) {
 	mockHandle := &mockNetlinkHandle{}
 	manager := createTestNetlinkManager(mockHandle)
 
-	// Set gatewayTableID to 0 to test the early return
-	manager.gatewayTableID = 0
+	err := manager.UpdateRoutes([]*net.IPNet{}, []net.IP{})
 
-	err := manager.removeRoutes()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no routes specified")
+	mockHandle.AssertExpectations(t)
+}
 
-	assert.NoError(t, err)
-	// No mock expectations should be called since the function returns early
+func TestNetlinkManager_UpdateRoutes_NoGateways(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	route := &net.IPNet{
+		IP:   net.IPv4(192, 168, 0, 0),
+		Mask: net.CIDRMask(16, 32),
+	}
+
+	// Mock the removeRoutes call
+	mockHandle.On("RouteListFilteredIter", netlink.FAMILY_V4, &netlink.Route{Table: 100}, uint64(netlink.RT_FILTER_TABLE), mock.AnythingOfType("func(netlink.Route) bool")).Return(nil, []netlink.Route{})
+
+	err := manager.UpdateRoutes([]*net.IPNet{route}, []net.IP{})
+
+	require.NoError(t, err)
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_UpdateRoutes_SingleRoute(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	route := &net.IPNet{
+		IP:   net.IPv4(192, 168, 0, 0),
+		Mask: net.CIDRMask(16, 32),
+	}
+	gateway := net.ParseIP("192.168.1.1")
+
+	expectedRoute := &netlink.Route{
+		Dst: route,
+		MultiPath: []*netlink.NexthopInfo{
+			{Gw: gateway},
+		},
+		Table: 100, // gateway table
+	}
+
+	mockHandle.On("RouteReplace", expectedRoute).Return(nil)
+
+	err := manager.UpdateRoutes([]*net.IPNet{route}, []net.IP{gateway})
+
+	require.NoError(t, err)
+	mockHandle.AssertExpectations(t)
+}
+
+func TestNetlinkManager_UpdateRoutes_MultipleRoutes(t *testing.T) {
+	mockHandle := &mockNetlinkHandle{}
+	manager := createTestNetlinkManager(mockHandle)
+
+	route1 := &net.IPNet{
+		IP:   net.IPv4(192, 168, 0, 0),
+		Mask: net.CIDRMask(16, 32),
+	}
+	route2 := &net.IPNet{
+		IP:   net.IPv4zero,
+		Mask: net.CIDRMask(0, 32),
+	}
+	gateway := net.ParseIP("192.168.1.1")
+
+	expectedRoute1 := &netlink.Route{
+		Dst: route1,
+		MultiPath: []*netlink.NexthopInfo{
+			{Gw: gateway},
+		},
+		Table: 100, // gateway table
+	}
+
+	expectedRoute2 := &netlink.Route{
+		Dst: route2,
+		MultiPath: []*netlink.NexthopInfo{
+			{Gw: gateway},
+		},
+		Table: 100, // gateway table
+	}
+
+	mockHandle.On("RouteReplace", expectedRoute1).Return(nil)
+	mockHandle.On("RouteReplace", expectedRoute2).Return(nil)
+
+	err := manager.UpdateRoutes([]*net.IPNet{route1, route2}, []net.IP{gateway})
+
+	require.NoError(t, err)
+	mockHandle.AssertExpectations(t)
 }

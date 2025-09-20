@@ -58,6 +58,7 @@ type Config struct {
 	CIDRsToExclude      []*net.IPNet
 	FirstRoutingTableID int
 	FirstRulePreference int
+	Routes              []*net.IPNet
 	// DDNS configuration
 	DDNSProvider         string
 	DDNSUsername         string
@@ -86,6 +87,19 @@ func ParseFlags(args []string) Config {
 	flag.IntVar(&config.MetricsPort, "metrics-port", 9090, "Port for Prometheus metrics endpoint")
 	flag.IntVar(&config.FirstRoutingTableID, "first-routing-table-id", 180, "First routing table ID to use for gateway route logic")
 	flag.IntVar(&config.FirstRulePreference, "first-rule-preference", 10888, "First rule preference to use for gateway route logic")
+	flag.Func("route", "Routes to manage in CIDR notation or 'default'", func(s string) error {
+		if s == "default" {
+			s = "0.0.0.0/0"
+		}
+
+		_, destination, err := net.ParseCIDR(s)
+		if err != nil {
+			return fmt.Errorf("invalid route: %w", err)
+		}
+
+		config.Routes = append(config.Routes, destination)
+		return nil
+	})
 
 	// DDNS configuration flags
 	flag.StringVar(&config.DDNSProvider, "ddns-provider", "", fmt.Sprintf("DDNS provider (currently supports: %s)", strings.Join(ddnsProviders, ", ")))
@@ -138,6 +152,16 @@ func ParseFlags(args []string) Config {
 	}
 
 	config.CIDRsToExclude = cidrsToExclude
+
+	if len(config.Routes) == 0 {
+		config.Routes = []*net.IPNet{
+			{
+				IP:   net.IPv4(0, 0, 0, 0),
+				Mask: net.CIDRMask(0, 32),
+			},
+		}
+	}
+
 	return config
 }
 

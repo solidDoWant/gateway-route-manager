@@ -4,7 +4,7 @@ Route management service that monitors remote network gateways via HTTP health c
 
 ## Overview
 
-Gateway Route Manager continuously monitors a range of IP addresses via HTTP health checks and automatically manages the default route to include only healthy gateways. When gateways become healthy or unhealthy, the routing table is updated in real-time to ensure traffic only flows through working paths.
+Gateway Route Manager continuously monitors a range of IP addresses via HTTP health checks and automatically manages network routes to include only healthy gateways. By default, it manages the default route (0.0.0.0/0), but can be configured to manage routes with any destination. When gateways become healthy or unhealthy, the routing table is updated in real-time to ensure traffic only flows through working paths.
 
 This tool was specifically designed to work with [Gluetun](https://github.com/qdm12/gluetun), allowing devices on a network to automatically load balance traffic between multiple VPN tunnel exit nodes. See the [gluentun health check documentation here](https://github.com/qdm12/gluetun-wiki/blob/5809ed3a8d5229eeeb5dab574d04665be0fd9348/faq/healthcheck.md#docker-healthcheck).
 
@@ -59,11 +59,12 @@ docker run --rm --name gateway-route-manager \
 | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------------ |
 | `-start-ip`                   | *(required)* | Starting IP address for the gateway range                                                        |
 | `-end-ip`                     | *(required)* | Ending IP address for the gateway range                                                          |
-| `-port`                       | `80`         | Port to target for health checks                                                                 |
+| `-port`                       | `9999`       | Port to target for health checks                                                                 |
 | `-path`                       | `/`          | URL path for health checks                                                                       |
 | `-scheme`                     | `http`       | Scheme to use (`http` or `https`)                                                                |
 | `-timeout`                    | `1s`         | Timeout for individual health checks                                                             |
 | `-check-period`               | `3s`         | How often to perform health checks                                                               |
+| `-route`                      | `0.0.0.0/0`  | Route to manage in CIDR notation or 'default' (e.g., `192.168.0.0/16` or `default`)              |
 | `-metrics-port`               | `9090`       | Port for Prometheus metrics endpoint                                                             |
 | `-log-level`                  | `info`       | Log level (`debug`, `info`, `warn`, `error`)                                                     |
 | `-exclude-cidr`               | *(none)*     | Destinations that should not be routed via the gateways (can be specified multiple times)        |
@@ -101,6 +102,27 @@ gateway-route-manager \
 #### Single Gateway
 ```shell
 gateway-route-manager -start-ip 192.168.1.1 -end-ip 192.168.1.1
+```
+
+#### Managing Specific Network Routes
+
+To manage a specific network route instead of the default route:
+
+```shell
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -route 10.0.0.0/8
+```
+
+To manage multiple network routes instead of the default route:
+
+```shell
+gateway-route-manager \
+  -start-ip 192.168.1.10 \
+  -end-ip 192.168.1.15 \
+  -route 1.0.0.0/8 \
+  -route 2.0.0.0/8
 ```
 
 #### Excluding Additional Networks

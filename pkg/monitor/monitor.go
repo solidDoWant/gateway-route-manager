@@ -220,7 +220,7 @@ func (gm *GatewayMonitor) updateRoutes(activeGateways []gateway.Gateway) error {
 		activeGatewayAddresses[i] = gw.IP
 	}
 
-	if err := gm.routeManager.UpdateDefaultRoute(activeGatewayAddresses); err != nil {
+	if err := gm.routeManager.UpdateRoutes(gm.config.Routes, activeGatewayAddresses); err != nil {
 		gm.metrics.RouteUpdatesTotal.WithLabelValues("update", "failure").Inc()
 		return err
 	}

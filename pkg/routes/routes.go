@@ -19,9 +19,9 @@ func init() {
 
 // Manager defines the interface for route management operations
 type Manager interface {
-	// UpdateDefaultRoute updates the default route to use ECMP with the provided active gateways.
+	// UpdateRoutes updates the specified routes to use ECMP with the provided active gateways.
 	// Only returns an error if a fatal error occurs during route manipulation.
-	UpdateDefaultRoute(activeGateways []net.IP) error
+	UpdateRoutes(routes []*net.IPNet, activeGateways []net.IP) error
 }
 
 // CloseableManager extends Manager with a Close method for cleanup
@@ -226,25 +226,6 @@ func (m *NetlinkManager) removeRules() error {
 	return nil
 }
 
-func (m *NetlinkManager) removeRoutes() error {
-	if m.gatewayTableID == 0 {
-		return nil
-	}
-
-	var cleanupErr error
-	err := m.handle.RouteListFilteredIter(netlink.FAMILY_V4, &netlink.Route{Table: m.gatewayTableID}, netlink.RT_FILTER_TABLE, func(route netlink.Route) bool {
-		if err := m.handle.RouteDel(&route); err != nil {
-			cleanupErr = fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
-			return false
-		}
-
-		slog.Debug("Removed default route", "gateway", route.Gw)
-		return true
-	})
-
-	return errors.Join(err, cleanupErr)
-}
-
 func (m *NetlinkManager) Close() error {
 	removeRoutesErr := m.removeRoutes()
 	if removeRoutesErr != nil {
@@ -260,16 +241,20 @@ func (m *NetlinkManager) Close() error {
 	return errors.Join(removeRoutesErr, removeRulesErr)
 }
 
-// UpdateDefaultRoute updates the default route to use ECMP with the provided active gateways.
+// UpdateRoutes updates the specified routes to use ECMP with the provided active gateways.
 // Only returns an error if a fatal error occurs during route manipulation.
-func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
+func (m *NetlinkManager) UpdateRoutes(routes []*net.IPNet, activeGateways []net.IP) error {
+	if len(routes) == 0 {
+		return fmt.Errorf("no routes specified")
+	}
+
 	if len(activeGateways) == 0 {
-		// Remove existing default route if no gateways are active
-		if err := m.removeDefaultRoute(); err != nil {
-			return fmt.Errorf("failed to remove default route: %w", err)
+		// Remove existing routes if no gateways are active
+		if err := m.removeRoutes(); err != nil {
+			return fmt.Errorf("failed to remove routes: %w", err)
 		}
 
-		slog.Debug("No active gateways, default route removed")
+		slog.Debug("No active gateways, routes removed")
 		return nil
 	}
 
@@ -278,20 +263,25 @@ func (m *NetlinkManager) UpdateDefaultRoute(activeGateways []net.IP) error {
 		return activeGateways[i].String() < activeGateways[j].String()
 	})
 
-	// Replace existing default route with new ECMP route
-	return m.replaceDefaultRouteECMP(activeGateways)
+	// Update each route
+	for _, route := range routes {
+		if err := m.replaceRouteECMP(route, activeGateways); err != nil {
+			return fmt.Errorf("failed to update route to %s: %w", route.String(), err)
+		}
+	}
+
+	return nil
 }
 
-func (m *NetlinkManager) removeDefaultRoute() error {
+func (m *NetlinkManager) removeRoutes() error {
 	var cleanupErr error
 	err := m.handle.RouteListFilteredIter(netlink.FAMILY_V4, &netlink.Route{Table: m.gatewayTableID}, netlink.RT_FILTER_TABLE, func(route netlink.Route) bool {
-
 		if err := m.handle.RouteDel(&route); err != nil {
-			cleanupErr = fmt.Errorf("failed to delete default route via %s: %v", route.Gw, err)
+			cleanupErr = fmt.Errorf("failed to delete route to %s via %s: %v", route.Dst, route.Gw, err)
 			return false
 		}
 
-		slog.Debug("Removed default route", "gateway", route.Gw)
+		slog.Debug("Removed route", "destination", route.Dst, "gateway", route.Gw)
 		return true
 	})
 
@@ -302,7 +292,7 @@ func (m *NetlinkManager) removeDefaultRoute() error {
 	return errors.Join(err, cleanupErr)
 }
 
-func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
+func (m *NetlinkManager) replaceRouteECMP(routeNet *net.IPNet, gateways []net.IP) error {
 	if len(gateways) == 0 {
 		return nil
 	}
@@ -316,10 +306,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 	}
 
 	route := &netlink.Route{
-		Dst: &net.IPNet{
-			IP:   net.IPv4zero,
-			Mask: net.CIDRMask(0, 32),
-		},
+		Dst:       routeNet,
 		MultiPath: nexthops,
 		Table:     m.gatewayTableID,
 	}
@@ -334,7 +321,7 @@ func (m *NetlinkManager) replaceDefaultRouteECMP(gateways []net.IP) error {
 	for _, gw := range gateways {
 		gatewayStrings = append(gatewayStrings, gw.String())
 	}
-	slog.Debug("Updated ECMP default route", "gateways", gatewayStrings)
+	slog.Debug("Updated ECMP route", "destination", routeNet.String(), "gateways", gatewayStrings)
 
 	return nil
 }
