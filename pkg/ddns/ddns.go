@@ -148,7 +148,19 @@ func (u *Updater) update(ctx context.Context) error {
 		}
 		publicIPs = append(publicIPs, gw.PublicIP)
 	}
+
+	// Remove duplicates and sort
+	uniqueIPs := make(map[string]struct{}, len(publicIPs))
+	for _, ip := range publicIPs {
+		uniqueIPs[ip] = struct{}{}
+	}
+
+	publicIPs = publicIPs[:0]
+	for ip := range uniqueIPs {
+		publicIPs = append(publicIPs, ip)
+	}
 	slices.Sort(publicIPs)
+
 	u.metrics.UniquePublicIPsGauge.Set(float64(len(publicIPs)))
 
 	lastActivePublicIPs := u.lastActiveIPs.Load().([]string)
