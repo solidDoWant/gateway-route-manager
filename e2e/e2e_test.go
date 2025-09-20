@@ -88,6 +88,8 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 			"-public-ip-service-scheme", "http",
 			"-public-ip-service-port", "8080",
 			"-public-ip-service-path", "/v1/ip",
+			"-ddns-timeout", "10s",
+			"-ddns-record-ttl", "62s",
 		}
 	}
 

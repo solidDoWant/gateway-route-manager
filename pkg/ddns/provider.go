@@ -26,6 +26,7 @@ func NewProvider(cfg config.Config) (Provider, error) {
 			cfg.DDNSPassword, // API key
 			cfg.DDNSHostname,
 			cfg.DDNSTimeout,
+			cfg.DDNSTTL,
 		)
 	default:
 		return nil, fmt.Errorf("unsupported DDNS provider: %s", cfg.DDNSProvider)

@@ -319,6 +319,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "192.168.1.100",
 				DDNSTimeout:          time.Minute,
+				DDNSTTL:              time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},
@@ -342,6 +343,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "not.an.ip",
 				DDNSTimeout:          time.Minute,
+				DDNSTTL:              time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},
@@ -367,6 +369,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSHostname:         "example.com",
 				DDNSRequireIPAddress: "2001:db8::1",
 				DDNSTimeout:          time.Minute,
+				DDNSTTL:              time.Minute,
 				PublicIPService: PublicIPServiceConfig{
 					Port: 443,
 				},
@@ -393,6 +396,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSPassword: "api-key-12345",
 				DDNSHostname: "test.example.com",
 				DDNSTimeout:  time.Minute,
+				DDNSTTL:      time.Minute,
 			},
 			errFunc: require.NoError,
 		},
@@ -414,6 +418,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSProvider: "dynudns",
 				DDNSHostname: "test.example.com",
 				DDNSTimeout:  time.Minute,
+				DDNSTTL:      time.Minute,
 			},
 			errFunc: require.Error,
 			errMsg:  "ddns-password is required when ddns-provider is dynudns",
@@ -438,6 +443,7 @@ func TestConfig_Validate(t *testing.T) {
 				DDNSPassword: "pass",
 				DDNSHostname: "test.example.com",
 				DDNSTimeout:  time.Minute,
+				DDNSTTL:      time.Minute,
 			},
 			errFunc: require.Error,
 			errMsg:  "ddns-provider must be one of: changeip, dynudns",

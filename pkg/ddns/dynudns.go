@@ -18,9 +18,10 @@ var dynuDNSBaseURL = "https://api.dynu.com/v2"
 
 // DynuDNSProvider implements the DDNS Provider interface for DynuDNS
 type DynuDNSProvider struct {
-	apiKey   string
-	hostname string
-	client   *http.Client
+	apiKey    string
+	hostname  string
+	recordTTL time.Duration
+	client    *http.Client
 
 	// Cached domain information
 	rootDomainID int
@@ -117,10 +118,11 @@ func (d *DynuDNSProvider) makeAPIRequest(ctx context.Context, method, url string
 }
 
 // NewDynuDNSProvider creates a new DynuDNS DDNS provider
-func NewDynuDNSProvider(apiKey, hostname string, timeout time.Duration) (*DynuDNSProvider, error) {
+func NewDynuDNSProvider(apiKey, hostname string, timeout time.Duration, recordTTL time.Duration) (*DynuDNSProvider, error) {
 	d := &DynuDNSProvider{
-		apiKey:   apiKey,
-		hostname: hostname,
+		apiKey:    apiKey,
+		hostname:  hostname,
+		recordTTL: recordTTL,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -265,10 +267,11 @@ func (d *DynuDNSProvider) createRecord(ctx context.Context, ipAddress string) er
 	recordReq := DynuDNSRecordRequest{
 		NodeName:    d.nodeName,
 		RecordType:  "A",
-		TTL:         int((5 * time.Minute).Seconds()),
+		TTL:         int(d.recordTTL.Seconds()),
 		State:       true,
 		IPv4Address: ipAddress,
 	}
+	slog.DebugContext(ctx, "Creating new DNS record", "provider", d.Name(), "request", fmt.Sprintf("%#v", recordReq))
 
 	jsonData, err := json.Marshal(recordReq)
 	if err != nil {

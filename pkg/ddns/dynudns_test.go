@@ -59,7 +59,7 @@ func TestDynuDNSProvider_UpdateRecords(t *testing.T) {
 	dynuDNSBaseURL = server.URL + "/v2"
 	defer func() { dynuDNSBaseURL = originalURL }()
 
-	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second)
+	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestDynuDNSProvider_UpdateRecords_EmptyList(t *testing.T) {
 	dynuDNSBaseURL = server.URL + "/v2"
 	defer func() { dynuDNSBaseURL = originalURL }()
 
-	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second)
+	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
