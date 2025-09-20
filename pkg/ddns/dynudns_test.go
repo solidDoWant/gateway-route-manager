@@ -1,7 +1,6 @@
 package ddns
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestDynuDNSProvider_UpdateRecords tests the core functionality of updating DNS records
@@ -59,15 +60,10 @@ func TestDynuDNSProvider_UpdateRecords(t *testing.T) {
 	dynuDNSBaseURL = server.URL + "/v2"
 	defer func() { dynuDNSBaseURL = originalURL }()
 
-	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
-	}
+	provider := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
 
-	err = provider.UpdateRecords(t.Context(), []string{"5.6.7.8"})
-	if err != nil {
-		t.Fatalf("UpdateRecords failed: %v", err)
-	}
+	err := provider.UpdateRecords(t.Context(), []string{"5.6.7.8"})
+	require.NoError(t, err, "UpdateRecords failed")
 
 	// Verify basic API calls were made
 	if len(requests) < 3 {
@@ -111,14 +107,8 @@ func TestDynuDNSProvider_UpdateRecords_EmptyList(t *testing.T) {
 	dynuDNSBaseURL = server.URL + "/v2"
 	defer func() { dynuDNSBaseURL = originalURL }()
 
-	provider, err := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
-	}
+	provider := NewDynuDNSProvider("test-api-key", "test.example.com", 10*time.Second, 10*time.Minute)
 
-	ctx := context.Background()
-	err = provider.UpdateRecords(ctx, []string{})
-	if err != nil {
-		t.Fatalf("UpdateRecords with empty list failed: %v", err)
-	}
+	err := provider.UpdateRecords(t.Context(), []string{})
+	require.NoError(t, err, "UpdateRecords failed")
 }

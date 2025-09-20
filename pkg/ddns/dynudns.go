@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -24,6 +25,7 @@ type DynuDNSProvider struct {
 	client    *http.Client
 
 	// Cached domain information
+	initialized  atomic.Bool
 	rootDomainID int
 	nodeName     string
 }
@@ -118,8 +120,8 @@ func (d *DynuDNSProvider) makeAPIRequest(ctx context.Context, method, url string
 }
 
 // NewDynuDNSProvider creates a new DynuDNS DDNS provider
-func NewDynuDNSProvider(apiKey, hostname string, timeout time.Duration, recordTTL time.Duration) (*DynuDNSProvider, error) {
-	d := &DynuDNSProvider{
+func NewDynuDNSProvider(apiKey, hostname string, timeout time.Duration, recordTTL time.Duration) *DynuDNSProvider {
+	return &DynuDNSProvider{
 		apiKey:    apiKey,
 		hostname:  hostname,
 		recordTTL: recordTTL,
@@ -127,15 +129,6 @@ func NewDynuDNSProvider(apiKey, hostname string, timeout time.Duration, recordTT
 			Timeout: timeout,
 		},
 	}
-
-	initContext, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	if err := d.initializeDomainInfo(initContext); err != nil {
-		return nil, fmt.Errorf("failed to initialize domain info: %w", err)
-	}
-
-	return d, nil
 }
 
 // Name returns the provider name
@@ -166,6 +159,16 @@ func (d *DynuDNSProvider) initializeDomainInfo(ctx context.Context) error {
 // UpdateRecords updates the DNS records with the provided IP addresses
 func (d *DynuDNSProvider) UpdateRecords(ctx context.Context, newPublicIPs []string) error {
 	logger := slog.With("provider", d.Name(), "hostname", d.hostname, "ips", newPublicIPs)
+
+	// This cannot be done at provider creation time because it requires network access, which may not be available then
+	if !d.initialized.Load() {
+		logger.Info("Initializing DynuDNS domain info")
+
+		if err := d.initializeDomainInfo(ctx); err != nil {
+			return fmt.Errorf("failed to initialize domain info: %w", err)
+		}
+		d.initialized.Store(true)
+	}
 
 	// Get current records
 	existingRecords, err := d.getExistingRecords(ctx)

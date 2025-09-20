@@ -113,6 +113,8 @@ func (gm *GatewayMonitor) performCheckCycle(ctx context.Context) error {
 		return fmt.Errorf("failed to update routes: %w", err)
 	}
 
+	// This must be done after the routes are updated to ensure that the DDNS provider
+	// can make network requests
 	gm.ddnsUpdater.ScheduleUpdate(activeGateways)
 
 	gm.metrics.CheckCycleDurationSeconds.Observe(time.Since(start).Seconds())
