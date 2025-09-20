@@ -66,6 +66,10 @@ func (u *Updater) Close() {
 }
 
 func (u *Updater) Run(ctx context.Context) {
+	// Start the monitoring goroutine
+	go u.monitorAddresses(ctx)
+
+	// Main update loop
 	for {
 		select {
 		case <-ctx.Done():
@@ -191,4 +195,41 @@ func (u *Updater) update(ctx context.Context) error {
 
 	u.lastActiveIPs.Store(publicIPs)
 	return nil
+}
+
+// Periodically checks for the presence of the required IP address on any interface and triggers DDNS updates when it appears
+// This is mainly useful for startup cases where there may be no VRRP master yet when an update is first triggered
+func (u *Updater) monitorAddresses(ctx context.Context) {
+	if u.config.DDNSProvider == "" || u.config.DDNSRequireIPAddress == "" {
+		return
+	}
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	foundAddressLast := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.InfoContext(ctx, "Address monitor stopped")
+			return
+		case <-ticker.C:
+			foundIP, err := iputil.HasInterfaceWithIP(u.config.DDNSRequireIPAddress)
+			if err != nil {
+				slog.ErrorContext(ctx, "Failed to check interfaces for required IP", "error", err)
+				continue
+			}
+
+			if foundIP && !foundAddressLast {
+				slog.DebugContext(ctx, "Required IP address appeared on interface, triggering DDNS update", "required_ip", u.config.DDNSRequireIPAddress)
+				select {
+				case u.updateChan <- struct{}{}:
+				default:
+				}
+			}
+
+			foundAddressLast = foundIP
+		}
+	}
 }
