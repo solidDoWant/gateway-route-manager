@@ -12,7 +12,7 @@ This tool was specifically designed to work with [Gluetun](https://github.com/qd
 
 * Gateway health monitoring via HTTP status checks. A `2xx` response marks the gateway as available, and all other responses (or lack thereof) mark the gateway as inactive.
 * Routing table updates via route replacements. Routes are only deleted if no gateways are available, so traffic is not dropped upon routing table update.
-* Optional DDNS updates. DNS records for a domain are automatically updated to resolve to all (and only) active gateways. [ChangeIP](http://changeip.com/) and [DynuDNS](https://www.dynu.com/) are currently supported (file an issue for more).
+* Optional DDNS updates. DNS records for a domain are automatically updated to resolve to all (and only) active gateways. [DynuDNS](https://www.dynu.com/) is currently supported (file an issue for additional providers).
 * A Prometheus metrics endpont is available to report information about the gateway and routing table state. See [here for a detailed description of available metrics](./Metrics.md).
 
 ## Quick Start
@@ -69,8 +69,8 @@ docker run --rm --name gateway-route-manager \
 | `-log-level`                  | `info`       | Log level (`debug`, `info`, `warn`, `error`)                                                     |
 | `-exclude-cidr`               | *(none)*     | Destinations that should not be routed via the gateways (can be specified multiple times)        |
 | `-exclude-reserved-cidrs`     | `true`       | Automatically exclude reserved IPv4 destinations (private networks, loopback, multicast, etc.)   |
-| `-ddns-provider`              | *(none)*     | DDNS provider to use for updating DNS records (valid values: `changeip`, `dynudns`)              |
-| `-ddns-username`              | *(none)*     | DDNS username (required for some providers like ChangeIP)                                        |
+| `-ddns-provider`              | *(none)*     | DDNS provider to use for updating DNS records (valid values: `dynudns`)                          |
+| `-ddns-username`              | *(none)*     | DDNS username (not currently used by any providers)                                              |
 | `-ddns-password`              | *(none)*     | DDNS password or API key (required if DDNS provider is specified, falls back to `DDNS_PASSWORD`) |
 | `-ddns-hostname`              | *(none)*     | DDNS hostname to update (required if DDNS provider is specified)                                 |
 | `-ddns-timeout`               | 60s          | Timeout for DDNS updates                                                                         |
@@ -142,20 +142,6 @@ gateway-route-manager \
 
 Enable Dynamic DNS updates to automatically update DNS records with active gateway public IPs:
 
-**ChangeIP Provider:**
-```shell
-gateway-route-manager \
-  -start-ip 192.168.1.10 \
-  -end-ip 192.168.1.15 \
-  -ddns-provider changeip \
-  -ddns-username myuser \
-  -ddns-password mypass \
-  -ddns-hostname mygateways.example.com \
-  -public-ip-service-port 8000 \
-  -public-ip-service-path /v1/ip \
-  -ddns-require-ip-address 192.168.1.100  # Optional, set if using multiple router instances with VRRP
-```
-
 **DynuDNS Provider (API key authentication):**
 ```shell
 gateway-route-manager \
@@ -170,18 +156,15 @@ gateway-route-manager \
   -ddns-record-ttl 120s  # Optional
 ```
 
-Or using environment variable for password/API key:
+Or using environment variable for the API key:
 
 ```shell
-export DDNS_PASSWORD=mypass  # For ChangeIP
-# or
-export DDNS_PASSWORD=your-api-key  # For DynuDNS
+export DDNS_PASSWORD=your-api-key
 
 gateway-route-manager \
   -start-ip 192.168.1.10 \
   -end-ip 192.168.1.15 \
-  -ddns-provider changeip \
-  -ddns-username myuser \  # Only required for ChangeIP
+  -ddns-provider dynudns \
   -ddns-hostname mygateways.example.com
 ```
 
@@ -284,24 +267,18 @@ The list of public IP addresses for the active gateways is then used to update a
 
 #### Supported DDNS Providers
 
-##### ChangeIP.com
+##### DynuDNS
 
-ChangeIP is a free Dynamic DNS service, and one of the few that supports multiple IP addresses per hostname. It also allows for configuring the TTL of records at no
-additional cost. This allows for much faster failover.
-
-> [!NOTE]
-> Multiple records are only supported on _subdomains_ of the registered DDNS domain. If you register `my-domain.changeip-root-domain.tld`, then you must specify a
-> subdomain (e.g. `subdomain.my-domain.changeip-root-domain.tld`) when using this tool.
+DynuDNS is a free Dynamic DNS service that supports multiple IP addresses per hostname and configurable TTL values.
 
 **Configuration:**
 ```shell
 gateway-route-manager \
   -start-ip 192.168.1.10 \
   -end-ip 192.168.1.15 \
-  -ddns-provider changeip \
-  -ddns-username your-changeip-username \
-  -ddns-password your-changeip-password \
-  -ddns-hostname subdomain.your-hostname.changeip-domain.com
+  -ddns-provider dynudns \
+  -ddns-password your-api-key \
+  -ddns-hostname your-hostname.dynu.net
 ```
 
 #### Gateway Public IP Service Requirements

@@ -14,13 +14,6 @@ func NewProvider(cfg config.Config) (Provider, error) {
 	}
 
 	switch strings.ToLower(cfg.DDNSProvider) {
-	case "changeip":
-		return NewChangeIPProvider(
-			cfg.DDNSUsername,
-			cfg.DDNSPassword,
-			cfg.DDNSHostname,
-			cfg.DDNSTimeout,
-		), nil
 	case "dynudns":
 		return NewDynuDNSProvider(
 			cfg.DDNSPassword, // API key

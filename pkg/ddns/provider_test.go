@@ -17,28 +17,6 @@ func TestNewProvider(t *testing.T) {
 		expectedType  string
 	}{
 		{
-			name: "valid changeip provider",
-			config: config.Config{
-				DDNSProvider: "changeip",
-				DDNSUsername: "testuser",
-				DDNSPassword: "testpass",
-				DDNSHostname: "test.example.com",
-				Timeout:      5 * time.Second,
-			},
-			expectedType: "ChangeIP",
-		},
-		{
-			name: "changeip provider - case insensitive",
-			config: config.Config{
-				DDNSProvider: "ChangeIP",
-				DDNSUsername: "testuser",
-				DDNSPassword: "testpass",
-				DDNSHostname: "test.example.com",
-				Timeout:      5 * time.Second,
-			},
-			expectedType: "ChangeIP",
-		},
-		{
 			name: "DDNS not enabled",
 			config: config.Config{
 				DDNSProvider: "",

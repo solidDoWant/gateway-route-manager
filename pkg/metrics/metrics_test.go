@@ -127,8 +127,8 @@ func TestMetrics_FunctionalValidation(t *testing.T) {
 			metrics.CheckCyclesTotal.Inc()
 			metrics.PublicIPFetchTotal.WithLabelValues("192.168.1.1", "success").Inc()
 			metrics.PublicIPChangesTotal.Inc()
-			metrics.DDNSUpdatesTotal.WithLabelValues("changeip", "success").Inc()
-			metrics.DDNSUpdatesSkippedTotal.WithLabelValues("changeip", "no_change").Inc()
+			metrics.DDNSUpdatesTotal.WithLabelValues("dynudns", "success").Inc()
+			metrics.DDNSUpdatesSkippedTotal.WithLabelValues("dynudns", "no_change").Inc()
 		})
 	})
 
@@ -152,7 +152,7 @@ func TestMetrics_FunctionalValidation(t *testing.T) {
 			metrics.RouteUpdateDurationSeconds.Observe(0.2)
 			metrics.CheckCycleDurationSeconds.Observe(1.5)
 			metrics.PublicIPFetchDurationSeconds.WithLabelValues("192.168.1.1").Observe(0.3)
-			metrics.DDNSUpdateDurationSeconds.WithLabelValues("changeip").Observe(1.0)
+			metrics.DDNSUpdateDurationSeconds.WithLabelValues("dynudns").Observe(1.0)
 		})
 	})
 }

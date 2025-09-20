@@ -32,7 +32,7 @@ var reservedCIDRs = []string{
 	"224.0.0.0/3",     // Multicast + MCAST-TEST-NET + Reserved for future use + Broadcast
 }
 
-var ddnsProviders = []string{"changeip", "dynudns"}
+var ddnsProviders = []string{"dynudns"}
 
 // PublicIPServiceConfig holds configuration for the public IP service
 type PublicIPServiceConfig struct {
