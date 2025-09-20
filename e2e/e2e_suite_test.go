@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -166,7 +167,7 @@ func threadUnsafeSetupTestNetworkNamespace() {
 	hostNamespaceNet, err := netlink.ParseIPNet(testNetNSCIDR)
 	Expect(err).NotTo(HaveOccurred(), "Failed to parse CIDR address %q", testNetNSCIDR)
 
-	seutpInterface := func(interfaceName string, net *net.IPNet) {
+	setupInterface := func(interfaceName string, net *net.IPNet) {
 		link, err := netlink.LinkByName(interfaceName)
 		Expect(err).NotTo(HaveOccurred(), "Failed to get link by name %q", interfaceName)
 
@@ -177,7 +178,26 @@ func threadUnsafeSetupTestNetworkNamespace() {
 		Expect(netlink.AddrAdd(link, &netlink.Addr{IPNet: net})).To(Succeed(),
 			"Failed to add address %q to link %q", net, interfaceName)
 	}
-	seutpInterface(vethLink.Name, hostNamespaceNet)
+	setupInterface(vethLink.Name, hostNamespaceNet)
+
+	// Compute the test network namespace address (the other side of the veth pair)
+	testNamespaceNet := &net.IPNet{
+		IP:   hostNamespaceNet.IP,
+		Mask: hostNamespaceNet.Mask,
+	}
+	testNetNSIP := slices.Clone(testNamespaceNet.IP)
+	testNetNSIP[len(testNetNSIP)-1] += 1 // Increment the last byte for the peer address
+	testNetNSAddress = testNetNSIP.String()
+
+	// Add a masquerade rule for outbound NAT if exists
+	// This is needed for e2e tests that access external services (e.g. DDNS providers)
+	// This must be done prior to switching to the test network namespace
+	output, err := Run(exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-s", testNetNSAddress, "-j", "MASQUERADE"))
+	if err != nil {
+		Expect(output).To(ContainSubstring("No chain/target/match by that name"), "Failed to check for existing iptables rule")
+		_, err := Run(exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", testNetNSAddress, "-j", "MASQUERADE"))
+		Expect(err).To(Succeed(), "Failed to add iptables rule for outbound NAT from test network namespace")
+	}
 
 	// Create the new network namespace
 	currentNamespace, err := netns.Get()
@@ -199,6 +219,10 @@ func threadUnsafeSetupTestNetworkNamespace() {
 		defer runtime.UnlockOSThread()
 
 		Expect(netns.Set(currentNamespace)).To(Succeed(), "Failed to set thread's network namespace back to host")
+
+		// Clean up the iptables rule if exists
+		Run(exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", testNetNSAddress, "-j", "MASQUERADE"))
+
 		Expect(currentNamespace.Close()).To(Succeed(), "Failed to close current network namespace")
 		Expect(netns.DeleteNamed(netnsName)).To(Succeed(), "Failed to delete test network namespace")
 		Expect(testNetNSHandle.Close()).To(Succeed(), "Failed to close test network namespace handle")
@@ -216,13 +240,12 @@ func threadUnsafeSetupTestNetworkNamespace() {
 
 	// Set up the peer interface in the new network namespace
 	Expect(netns.Set(*testNetNSHandle)).To(Succeed(), "Failed to set thread's network namespace to test network namespace")
-	testNamespaceNet := &net.IPNet{
-		IP:   hostNamespaceNet.IP,
-		Mask: hostNamespaceNet.Mask,
+
+	testNetNSNet := &net.IPNet{
+		IP:   testNetNSIP,
+		Mask: testNamespaceNet.Mask,
 	}
-	testNamespaceNet.IP[len(testNamespaceNet.IP)-1] += 1 // Increment the last byte for the peer address
-	seutpInterface(vethLink.PeerName, testNamespaceNet)
-	testNetNSAddress = testNamespaceNet.IP.String()
+	setupInterface(vethLink.PeerName, testNetNSNet)
 
 	// Ensure the loopback interface is up in the test network namespace
 	links, err := netlink.LinkList()
@@ -246,8 +269,7 @@ func threadUnsafeSetupTestNetworkNamespace() {
 
 	route := &netlink.Route{
 		Dst: defaultDest,
-		Gw:  net.ParseIP("127.0.0.128"),
-		Src: net.ParseIP("127.0.0.129"),
+		Gw:  hostNamespaceNet.IP, // Use the host side of the veth pair as the gateway
 	}
 	Expect(netlink.RouteAdd(route)).To(Succeed(), "Failed to add dummy default route in test network namespace")
 

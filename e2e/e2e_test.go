@@ -30,17 +30,17 @@ var _ = When("Running the built binary", Ordered, func() {
 		Expect(helpText).To(ContainSubstring("Usage of"), "Help text should contain usage information")
 	})
 
-	It("should set the default route", func() {
+	It("should set the configured routes", func() {
 		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.10")()
 		checkRoutes("127.0.0.10")
 	})
 
-	It("should set multiple default nexthops", func() {
+	It("should set multiple nexthops", func() {
 		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 		checkRoutes("127.0.0.10", "127.0.0.12")
 	})
 
-	It("should remove the default route when no gateways are healthy", func() {
+	It("should remove the configured routes when no gateways are healthy", func() {
 		defer runBinaryUpdateRoutes("127.0.0.11", "127.0.0.11")()
 		checkRoutes()
 	})
@@ -48,13 +48,13 @@ var _ = When("Running the built binary", Ordered, func() {
 	It("should add another nexthop when a gateway becomes healthy", func() {
 		defer runBinaryUpdateRoutes("127.0.0.10", "127.0.0.12")()
 
-		// Check that the default route has been set to the two health gateways
+		// Check that the configured routes have been set to the two health gateways
 		checkRoutes("127.0.0.10", "127.0.0.12")
 
 		// Start another healthcheck web server on 127.0.0.11:8080
 		StartTestWebServer("127.0.0.11:8080")
 
-		// Check that the default route has been updated to include 127.0.0.11
+		// Check that the configured routes have been updated to include 127.0.0.11 nexthop
 		checkRoutes("127.0.0.10", "127.0.0.11", "127.0.0.12")
 	})
 
@@ -64,12 +64,12 @@ var _ = When("Running the built binary", Ordered, func() {
 		// Start another healthcheck web server on 127.0.0.11:8080
 		stopServer := StartTestWebServer("127.0.0.11:8080")
 
-		// Check that the default route includes 127.0.0.11
+		// Check that the configured routes includes 127.0.0.11 nexthop
 		checkRoutes("127.0.0.10", "127.0.0.11", "127.0.0.12")
 
 		stopServer()
 
-		// Check that the default route has dropped the 127.0.0.11 nexthop
+		// Check that the configured routes have dropped the 127.0.0.11 nexthop
 		checkRoutes("127.0.0.10", "127.0.0.12")
 	})
 })
@@ -80,9 +80,7 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 	dynudnsHostname := os.Getenv("DYNUDNS_HOSTNAME")
 
 	if dynudnsAPIKey != "" && dynudnsHostname != "" {
-		// This will fail because the test network namespace's default route is updated by the tool to localhost,
-		// making the dynudns service unreachable. However, this is useful to test that the tool at least tries to
-		// call out to the service.
+		// This will fail if the dynudns API endpoints ever resolve to 1/8 or 2/8 because the test uses those as route destinations.
 		ddnsArgs = []string{
 			"-ddns-provider", "dynudns",
 			"-ddns-password", dynudnsAPIKey,
@@ -93,7 +91,7 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 		}
 	}
 
-	return runBinary(
+	teardown := runBinary(
 		append(
 			ddnsArgs,
 			"-check-period", "250ms",
@@ -107,32 +105,42 @@ func runBinaryUpdateRoutes(startIP, endIP string) func() {
 			"-exclude-cidr", "192.168.0.0/16",
 			"-exclude-reserved-cidrs",
 			"-log-level", "debug",
+			"-route", "1.0.0.0/8",
+			"-route", "2.0.0.0/8",
 		)...,
 	)
+
+	// Sleep a moment to allow for DynuDNS provider initialization
+	if dynudnsAPIKey != "" && dynudnsHostname != "" {
+		time.Sleep(10 * time.Second)
+	}
+
+	return teardown
 }
 
 func checkRoutes(expectedNextHopsIPs ...string) {
 	Eventually(func(g Gomega) {
-		By(fmt.Sprintf("Checking for default route with next hops: %v", expectedNextHopsIPs))
-		defaultRoutes := getDefaultIPv4Routes(g)
+		By(fmt.Sprintf("Checking for configured routes with next hops: %v", expectedNextHopsIPs))
+		configuredRoutes := getConfiguredIPv4Routes(g)
 		if len(expectedNextHopsIPs) == 0 {
-			g.Expect(defaultRoutes).To(HaveLen(0), "There should be no default routes")
+			g.Expect(configuredRoutes).To(HaveLen(0), "There should be no configured routes")
 			return
 		}
 
-		g.Expect(defaultRoutes).To(HaveLen(1), "There should be exactly one default route")
-		defaultRoute := defaultRoutes[0]
-		g.Expect(defaultRoute).To(HaveLen(len(expectedNextHopsIPs)), "Default route should have the expected number of next hops")
+		g.Expect(configuredRoutes).To(HaveLen(2), "There should be exactly two configured routes")
+		for i, configuredRoute := range configuredRoutes {
+			g.Expect(configuredRoute).To(HaveLen(len(expectedNextHopsIPs)), "Configured route %d should have the expected number of next hops", i)
 
-		for i, expectedHop := range expectedNextHopsIPs {
-			expectedHop := net.ParseIP(expectedHop)
-			g.Expect(expectedHop).NotTo(BeNil(), "Expected hop should be a valid IP (test bug)")
+			for j, expectedHop := range expectedNextHopsIPs {
+				expectedHop := net.ParseIP(expectedHop)
+				g.Expect(expectedHop).NotTo(BeNil(), "Expected hop should be a valid IP (test bug)")
 
-			g.Expect(defaultRoute[i].Equal(expectedHop)).To(BeTrue(), "Next hop %d should be %s", i, expectedHop.String())
-		}
+				g.Expect(configuredRoute[j].Equal(expectedHop)).To(BeTrue(), "Next hop %d should be %s", j, expectedHop.String())
+			}
 
-		if len(expectedNextHopsIPs) == 0 {
-			return
+			if len(expectedNextHopsIPs) == 0 {
+				return
+			}
 		}
 
 		By("Checking that excluded destination CIDRs get forwarded via the main routing table")
@@ -144,7 +152,7 @@ func checkRoutes(expectedNextHopsIPs ...string) {
 		for _, addr := range testAddresses {
 			output, err := Run(exec.Command("ip", "route", "get", addr))
 			g.Expect(err).NotTo(HaveOccurred(), "Failed to get route for excluded CIDR address %s: %s", addr, output)
-			g.Expect(output).To(ContainSubstring("src 127.0.0.129"), "Excluded CIDR address %s should be routed via main table", addr)
+			g.Expect(output).To(ContainSubstring("src %s", testNetNSAddress), "Excluded CIDR address %s should be routed via main table", addr)
 		}
 
 		By("Checking that non-excluded destination CIDRs get forwarded via the gateway table")
@@ -152,7 +160,7 @@ func checkRoutes(expectedNextHopsIPs ...string) {
 		output, err := Run(exec.Command("ip", "route", "get", testAddress))
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get route for non-excluded CIDR address %s: %s", testAddress, output)
 		g.Expect(output).To(ContainSubstring("table 180"), "Non-excluded CIDR address %s should be routed via gateway table", testAddress)
-	}, 2*time.Second, 250*time.Millisecond).Should(Succeed(), "Failed to verify default route")
+	}, 2*time.Second, 250*time.Millisecond).Should(Succeed(), "Failed to verify configured routes")
 }
 
 // runBinary starts the built binary with the given arguments and returns a function to stop it
@@ -191,18 +199,25 @@ func logRoutingState() {
 	fmt.Fprintf(GinkgoWriter, "All IP rules:\n%s\n", output)
 }
 
-// getDefaultIPv4Routes returns the current default IPv4 routes in the test namespace that are
+// getConfiguredIPv4Routes returns the current configured IPv4 routes in the test namespace that are
 // assigned to the gateway table
-func getDefaultIPv4Routes(g Gomega) [][]net.IP {
-	output, err := Run(exec.Command("ip", "-o", "-4", "route", "show", "default", "table", "180"))
-	g.Expect(err).NotTo(HaveOccurred(), "Failed to get default IPv4 routes")
+func getConfiguredIPv4Routes(g Gomega) [][]net.IP {
+	return append(
+		getIPv4Routes(g, "1.0.0.0/8"),
+		getIPv4Routes(g, "2.0.0.0/8")...,
+	)
+}
+
+func getIPv4Routes(g Gomega, destination string) [][]net.IP {
+	output, err := Run(exec.Command("ip", "-o", "-4", "route", "show", destination, "table", "180"))
+	g.Expect(err).NotTo(HaveOccurred(), "Failed to get IPv4 routes to %s", destination)
 
 	lines := GetNonEmptyLines(output)
 
 	regex, err := regexp.Compile(`via ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})`)
 	g.Expect(err).NotTo(HaveOccurred(), "Failed to compile regex")
 
-	defaultRoutes := make([][]net.IP, 0, len(lines))
+	destinationRoutes := make([][]net.IP, 0, len(lines))
 	for _, line := range lines {
 		matches := regex.FindAllStringSubmatch(line, 100)
 
@@ -215,8 +230,8 @@ func getDefaultIPv4Routes(g Gomega) [][]net.IP {
 				hops = append(hops, nextHop)
 			}
 		}
-		defaultRoutes = append(defaultRoutes, hops)
+		destinationRoutes = append(destinationRoutes, hops)
 	}
 
-	return defaultRoutes
+	return destinationRoutes
 }
