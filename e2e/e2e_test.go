@@ -76,19 +76,17 @@ var _ = When("Running the built binary", Ordered, func() {
 
 func runBinaryUpdateRoutes(startIP, endIP string) func() {
 	ddnsArgs := []string{}
-	changeIPUsername := os.Getenv("CHANGEIP_USERNAME")
-	changeIPPassword := os.Getenv("CHANGEIP_PASSWORD")
-	changeIPHostname := os.Getenv("CHANGEIP_HOSTNAME")
+	dynudnsAPIKey := os.Getenv("DYNUDNS_API_KEY")
+	dynudnsHostname := os.Getenv("DYNUDNS_HOSTNAME")
 
-	if changeIPUsername != "" && changeIPPassword != "" && changeIPHostname != "" {
+	if dynudnsAPIKey != "" && dynudnsHostname != "" {
 		// This will fail because the test network namespace's default route is updated by the tool to localhost,
-		// making the changeip service unreachable. However, this is useful to test that the tool at least tries to
+		// making the dynudns service unreachable. However, this is useful to test that the tool at least tries to
 		// call out to the service.
 		ddnsArgs = []string{
-			"-ddns-provider", "changeip",
-			"-ddns-username", changeIPUsername,
-			"-ddns-password", changeIPPassword,
-			"-ddns-hostname", changeIPHostname,
+			"-ddns-provider", "dynudns",
+			"-ddns-password", dynudnsAPIKey,
+			"-ddns-hostname", dynudnsHostname,
 			"-public-ip-service-scheme", "http",
 			"-public-ip-service-port", "8080",
 			"-public-ip-service-path", "/v1/ip",
